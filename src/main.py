@@ -1,8 +1,8 @@
 import logging
 from datetime import date
 from dotenv import load_dotenv
-from pprint import pprint
 import os
+import shutil
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -10,11 +10,13 @@ from imap_tools import MailBox, AND, MailboxLoginError
 
 from src.credit import *
 from src.debit import *
-from utils.constants import START_DATE, END_DATE, SEEN_FILE_DIRECTORY, UNSEEN_FILE_DIRECTORY
+from utils.constants import START_DATE, END_DATE, SEEN_FILE_DIRECTORY, UNSEEN_FILE_DIRECTORY, CREDIT_REPORT_EXCEL, \
+    DEBIT_REPORT_EXCEL, ENV_FILE_PATH, PREFIX_PATH
+from utils.mailer import send_transaction_excel
 
 from utils.processes import *
 
-load_dotenv("../.env")
+load_dotenv(dotenv_path=ENV_FILE_PATH, verbose=True)
 
 
 def connection(server, user, password):
@@ -29,38 +31,6 @@ def connection(server, user, password):
     except MailboxLoginError as e:
         logger.error(e)
         return con
-
-
-def get_messages_details():
-    logger.info("Parsing file directory")
-    files = os.listdir(SEEN_FILE_DIRECTORY)
-
-    transaction_details = {}
-    transaction_holder = []
-
-    for file in files:
-        logger.info("Reading html from local storage")
-        with open(f'{SEEN_FILE_DIRECTORY}/{file}', 'r') as f:
-            html_content = f.read()
-
-        logger.info("Parsing html file with BS4")
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-        date_str = process_date(file)
-        header = soup.h1
-        information = soup.span
-
-        if header is None or information is None:
-            logger.info(f"file: {f.name} has an issue with either the header, body or date value")
-            logger.info(f"header: {header} "
-                        f"information: {information} "
-                        )
-            logger.info(f"This means file:{f.name} is not a transactional email\n")
-        else:
-            transaction_details = {'header': header.text, 'information': information.text, "date": date_str}
-        transaction_holder.append(transaction_details)
-
-    return transaction_holder
 
 
 def process_unseen_messages(con, kuda):
@@ -91,12 +61,14 @@ def process_unseen_messages(con, kuda):
         if START_DATE < date_object <= END_DATE:
             total_number_of_unseen_messages_in_timeframe += 1
 
-            if os.path.exists(UNSEEN_FILE_DIRECTORY) is False:
+            date_extensions = process_date_file_extension(message.date_str)
+
+            if os.path.exists(f"../{UNSEEN_FILE_DIRECTORY}") is False:
                 logger.info(f"Creating folder directory for month: {date_object.strftime('%B')}...")
-                os.mkdir(UNSEEN_FILE_DIRECTORY)
+                os.mkdir(f"../{UNSEEN_FILE_DIRECTORY}")
 
             logger.info("Writing individual transaction history to their respective files...")
-            with open(f'{UNSEEN_FILE_DIRECTORY}/transaction_on_{date_object.strftime("%Y-%m-%d")}.html', 'w') as file:
+            with open(f'../{UNSEEN_FILE_DIRECTORY}/transaction_on_{date_extensions}.html', 'w') as file:
                 file.write(email)
                 logger.info("Done!")
 
@@ -115,8 +87,7 @@ def process_seen_messages(con, kuda):
     mb = con
     logger.info("Getting list of read transactions from Kuda")
     seen_messages = mb.fetch(criteria=AND(seen=True, from_=kuda),
-                             mark_seen=False,
-                             bulk=True)
+                             mark_seen=False, bulk=True)
 
     total_number_of_seen_messages = 0
     total_number_of_seen_messages_in_timeframe = 0
@@ -137,12 +108,14 @@ def process_seen_messages(con, kuda):
         if START_DATE < date_object <= END_DATE:
             total_number_of_seen_messages_in_timeframe += 1
 
-            if os.path.exists(SEEN_FILE_DIRECTORY) is False:
+            date_extensions = process_date_file_extension(message.date_str)
+
+            if os.path.exists(f"../{SEEN_FILE_DIRECTORY}") is False:
                 logger.info(f"Creating folder directory for month: {date_object.strftime('%B')}...")
-                os.mkdir(SEEN_FILE_DIRECTORY)
+                os.mkdir(f"../{SEEN_FILE_DIRECTORY}")
 
             logger.info("Writing individual transaction history to their respective files...")
-            with open(f'{SEEN_FILE_DIRECTORY}/transaction_on_{date_object.strftime("%Y-%m-%d")}.html', 'w') as file:
+            with open(f'../{SEEN_FILE_DIRECTORY}/transaction_on_{date_extensions}.html', 'w') as file:
                 file.write(email)
                 logger.info("Done!\n")
 
@@ -152,6 +125,76 @@ def process_seen_messages(con, kuda):
     }
     logger.info('----------------------------------DONE WRITING READ EMAILS TO DIR------------------------------------')
     return conclusion
+
+
+def get_seen_messages_details():
+    if os.path.exists(f"../{SEEN_FILE_DIRECTORY}") is False:
+        return False
+
+    logger.info("Parsing file directory")
+    files = os.listdir(f"../{SEEN_FILE_DIRECTORY}")
+
+    transaction_details = {}
+    transaction_holder = []
+
+    for file in files:
+        logger.info("Reading html from local storage")
+        with open(f'../{SEEN_FILE_DIRECTORY}/{file}', 'r') as f:
+            html_content = f.read()
+
+        logger.info("Parsing html file with BS4")
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        date_str = process_date(file)
+        header = soup.h1
+        information = soup.span
+
+        if header is None or information is None:
+            logger.info(f"file: {f.name} has an issue with either the header, body or date value")
+            logger.info(f"header: {header} "
+                        f"information: {information} "
+                        )
+            logger.info(f"This means file:{f.name} is not a transactional email\n")
+        else:
+            transaction_details = {'header': header.text, 'information': information.text, "date": date_str}
+        transaction_holder.append(transaction_details)
+
+    return transaction_holder
+
+
+def get_unseen_messages_details():
+    if os.path.exists(f"../{UNSEEN_FILE_DIRECTORY}") is False:
+        return False
+
+    logger.info("Parsing file directory")
+    files = os.listdir(f"../{UNSEEN_FILE_DIRECTORY}")
+
+    transaction_details = {}
+    transaction_holder = []
+
+    for file in files:
+        logger.info("Reading html from local storage")
+        with open(f'../{UNSEEN_FILE_DIRECTORY}/{file}', 'r') as f:
+            html_content = f.read()
+
+        logger.info("Parsing html file with BS4")
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        date_str = process_date(file)
+        header = soup.h1
+        information = soup.span
+
+        if header is None or information is None:
+            logger.info(f"file: {f.name} has an issue with either the header, body or date value")
+            logger.info(f"header: {header} "
+                        f"information: {information} "
+                        )
+            logger.info(f"This means file:{f.name} is not a transactional email\n")
+        else:
+            transaction_details = {'header': header.text, 'information': information.text, "date": date_str}
+        transaction_holder.append(transaction_details)
+
+    return transaction_holder
 
 
 def process_debit(transaction_holder):
@@ -168,57 +211,57 @@ def process_debit(transaction_holder):
         logger.info("Checking if debit is by airtime recharge...")
         if is_debit_by_airtime_recharge(transaction.get('information')) is not True:
             logger.info("Debit is not by airtime recharge\n")
-            res['airtime_recharge'] = 'False'
+            res['AIRTIME RECHARGE'] = 'False'
         else:
             logger.info("Debit is airtime recharge!\n")
-            res['airtime_recharge'] = 'True'
+            res['AIRTIME RECHARGE'] = 'True'
             airtime_info = get_debit_by_airtime_info(transaction.get('information'))
-            res['network'] = airtime_info.get('network')
-            res['phone_number'] = airtime_info.get('phone_number')
-            res['amount'] = get_amount(transaction.get('information'))
+            res['NETWORK'] = airtime_info.get('network')
+            res['PHONE NUMBER'] = airtime_info.get('phone_number')
+            res['AMOUNT'] = get_amount(transaction.get('information'))
 
         logger.info("Checking if debit is by transfer...")
         if is_debit_by_transfer(transaction.get('information')) is not True:
             logger.info("Debit is not by transfer\n")
-            res['transfer'] = 'False'
+            res['TRANSFER'] = 'False'
         else:
             logger.info("Debit is by transfer\n")
-            res['transfer'] = 'True'
+            res['TRANSFER'] = 'True'
             transfer_info = get_debit_by_alert_info(transaction.get('information'))
-            res['amount'] = get_amount(transaction.get('information'))
-            res['receiver'] = transfer_info.get('receiver')
-            res['description'] = transfer_info.get('description')
+            res['AMOUNT'] = get_amount(transaction.get('information'))
+            res['RECEIVER'] = transfer_info.get('receiver')
+            res['DESCRIPTION'] = transfer_info.get('description')
 
         logger.info("Checking if debit is by using card at POS...")
         if is_debit_by_card_pos(transaction.get('header')) is not True:
             logger.info("Debit is not by using card at POS\n")
-            res['card_pos_withdrawal'] = 'False'
+            res['CARD POS WITHDRAWAL'] = 'False'
         else:
             logger.info("Debit is by using card at POS\n")
-            res['card'] = 'True'
-            res['atm_card'] = 'True'
-            res['amount'] = get_amount(transaction.get('information'))
+            res['CARD'] = 'True'
+            res['ATM CARD'] = 'True'
+            res['AMOUNT'] = get_amount(transaction.get('information'))
 
         logger.info("Checking if debit is by using card online...")
         if is_debit_by_card_online(transaction.get('header')) is not True:
             logger.info("Debit is not by using card online\n")
-            res['card_online'] = 'False'
+            res['CARD ONLINE'] = 'False'
         else:
             logger.info("Debit is by using card online\n")
-            res['card'] = 'True'
-            res['card_online'] = 'True'
-            res['amount'] = get_amount(transaction.get('information'))
+            res['CARD'] = 'True'
+            res['CARD ONLINE'] = 'True'
+            res['AMOUNT'] = get_amount(transaction.get('information'))
 
         logger.info("Checking if debit is savings...")
-        if is_debit_by_spend_and_save(transaction.get('information')) is not True:
+        if is_debit_by_spend_and_save(transaction.get('header')) is not True:
             logger.info("Debit is not by savings\n")
-            res['spend_and_save'] = 'False'
+            res['SPEND AND SAVE'] = 'False'
         else:
             logger.info("Debit is by savings\n")
-            res['spend_and_save'] = 'True'
-            res['amount'] = get_amount(transaction.get('information'))
+            res['SPEND AND SAVE'] = 'True'
+            res['AMOUNT'] = get_amount(transaction.get('information'))
 
-        res['date'] = transaction.get("date")
+        res['DATE'] = transaction.get("date")
         no_of_debit_alerts += 1
 
         logger.info(f"Done processing debit: id = [{no_of_debit_alerts}]")
@@ -248,26 +291,26 @@ def process_credit(transaction_holder):
         logger.info("Checking if credit is by alert")
         if is_credit_by_alert(transaction.get('information')) is not True:
             logger.info("Credit is not by alert\n")
-            res['credit_by_alert'] = 'False'
+            res['CREDIT BY ALERT'] = 'False'
         else:
             logger.info("Credit is by alert\n")
-            res['credit_by_alert'] = 'True'
+            res['CREDIT BY ALERT'] = 'True'
             amount = get_amount(transaction.get('information'))
-            res['amount'] = amount
+            res['AMOUNT'] = amount
             alert_info = get_credit_by_alert_info(transaction.get('information'))
-            res['sender'] = alert_info.get('sender')
-            res['description'] = alert_info.get('description')
+            res['SENDER'] = alert_info.get('sender')
+            res['DESCRIPTION'] = alert_info.get('description')
 
         logger.info("Checking if credit is by money reversal")
         if is_credit_by_reversal(transaction.get('header')) is not True:
             logger.info("Credit is not by money reversal\n")
-            res['credit_by_reversal'] = 'False'
+            res['CREDIT BY REVERSAL'] = 'False'
         else:
             logger.info("Credit is by money reversal\n")
-            res['amount'] = get_amount(transaction.get('header'))
-            res['credit_by_reversal'] = 'True'
+            res['AMOUNT'] = get_amount(transaction.get('header'))
+            res['CREDIT BY REVERSAL'] = 'True'
 
-        res['date'] = transaction.get('date')
+        res['DATE'] = transaction.get('date')
 
         logger.info(f"Done processing debit: id = [{no_of_credit_alerts}]")
         logger.info("--------------------------DONE------------------------------------")
@@ -285,8 +328,9 @@ def write_debit_to_excel(debit_alert):
     debit_list = debit_alert.get('debit_alert')
     try:
         df = pd.DataFrame(debit_list)
-        excel_file = 'debit_for_the_week.xlsx'
-        df.to_excel(excel_file, index=False)
+        df['DATE'] = pd.to_datetime(df['DATE'])
+        df = df.sort_values(by='DATE', ascending=True)
+        df.to_excel(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}", index=False)
         return "Done"
     except Exception as e:
         return f"{e}"
@@ -296,17 +340,45 @@ def write_credit_to_excel(credit_alert):
     credit_list = credit_alert.get('credit_alert')
     try:
         df = pd.DataFrame(credit_list)
-        excel_file = 'credit_for_the_week.xlsx'
-        df.to_excel(excel_file, index=False)
+        df['DATE'] = pd.to_datetime(df['DATE'])
+        df = df.sort_values(by='DATE', ascending=True)
+        df.to_excel(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}", index=False)
         return "Done"
     except Exception as e:
         return f"{e}"
 
 
+def clean_up():
+    logger.info("Cleaning up generated files/directories...")
+
+    if os.path.exists(f"{PREFIX_PATH}/{SEEN_FILE_DIRECTORY}"):
+        shutil.rmtree(f"{PREFIX_PATH}/{SEEN_FILE_DIRECTORY}")
+        logger.info(f"Deleted {SEEN_FILE_DIRECTORY}")
+    else:
+        logger.info(f"Directory: {SEEN_FILE_DIRECTORY} not found")
+
+    if os.path.exists(f"{PREFIX_PATH}/{UNSEEN_FILE_DIRECTORY}"):
+        shutil.rmtree(f"{PREFIX_PATH}/{UNSEEN_FILE_DIRECTORY}")
+        logger.info(f"Deleted {UNSEEN_FILE_DIRECTORY}")
+    else:
+        logger.info(f"Directory: {UNSEEN_FILE_DIRECTORY} not found")
+
+    if os.path.exists(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}"):
+        os.remove(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}")
+        logger.info(f"Deleted {CREDIT_REPORT_EXCEL}")
+    else:
+        logger.info(f"File: {CREDIT_REPORT_EXCEL} not found")
+
+    if os.path.exists(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}") is False:
+        return f"File: {DEBIT_REPORT_EXCEL} not found"
+    os.remove(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}")
+    logger.info(f"Deleted {DEBIT_REPORT_EXCEL}")
+
+
 if __name__ == "__main__":
-    SERVER = os.getenv("SERVER")
-    USER = os.getenv("GMAIL")
-    PASSWORD = os.getenv("PASSWORD")
+    SERVER = os.getenv("IMAP_SERVER")
+    USER = os.getenv("RECEIVER_EMAIL")
+    PASSWORD = os.getenv("RECEIVER_PASSWORD")
     KUDA = os.getenv("KUDA")
 
     logger = logging.getLogger()
@@ -317,13 +389,45 @@ if __name__ == "__main__":
     logger.addHandler(console_handler)
 
     conn = connection(SERVER, USER, PASSWORD)
+
     unseen_email_data = process_unseen_messages(conn, KUDA)
     seen_email_data = process_seen_messages(conn, KUDA)
-    email_details = get_messages_details()
 
-    write_debit_alert = process_debit(email_details)
-    write_credit_alert = process_credit(email_details)
+    seen_mail_details = get_seen_messages_details()
+    unseen_mail_details = get_unseen_messages_details()
 
-    pprint(write_debit_alert)
-    # write_debit_to_excel(write_debit_alert)
-    # write_credit_to_excel(write_credit_alert)
+    if seen_mail_details is False:
+        write_debit_alert = process_debit(unseen_mail_details)
+        write_credit_alert = process_credit(unseen_mail_details)
+
+        write_debit_to_excel(write_debit_alert)
+        write_credit_to_excel(write_credit_alert)
+
+        send_transaction_excel()
+
+    if unseen_mail_details is False:
+        write_debit_alert = process_debit(seen_mail_details)
+        write_credit_alert = process_credit(seen_mail_details)
+
+        write_debit_to_excel(write_debit_alert)
+        write_credit_to_excel(write_credit_alert)
+
+        send_transaction_excel()
+
+    if unseen_mail_details and seen_mail_details is True:
+        merged_mail_details = seen_mail_details + unseen_mail_details
+
+        write_debit_alert = process_debit(merged_mail_details)
+        write_credit_alert = process_credit(merged_mail_details)
+
+        write_debit_to_excel(write_debit_alert)
+        write_credit_to_excel(write_credit_alert)
+
+        send_transaction_excel()
+
+    """
+    Uncomment the clean up method to clean up generated files and directories
+    """
+    # clean_up()
+
+    logger.info("Successfully sent credit and debit alert transactions")

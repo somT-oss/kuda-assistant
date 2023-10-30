@@ -15,10 +15,10 @@ def is_debit_by_transfer(transaction_information):
     return True
 
 
-def is_debit_by_card_online(transaction_information):
-    key_phrase = 'You just paid'
+def is_debit_by_card_online(transaction_header):
+    header_phrase = 'You Used Your Kuda Card Online'
 
-    if key_phrase not in transaction_information:
+    if transaction_header != header_phrase:
         return False
     return True
 

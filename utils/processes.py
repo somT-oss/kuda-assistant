@@ -15,6 +15,16 @@ def process_date_str(date_str):
     return formatted_date
 
 
+def process_date_file_extension(date_str):
+    # Convert to a datetime object
+    date_object = datetime.strptime(date_str, '%a, %d %b %Y %H:%M:%S %z (%Z)')
+
+    # Convert to the desired format
+    formatted_date = date_object.strftime('%Y-%m-%d_%H:%M:%S')
+
+    return formatted_date
+
+
 def process_date(file_name):
     pattern = r'\d{4}-\d{2}-\d{2}'
     # Use re.search to find the match
