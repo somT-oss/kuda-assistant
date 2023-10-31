@@ -19,6 +19,11 @@ password = os.getenv("SENDER_PASSWORD")
 smtp_server = os.getenv("SMTP_SERVER")
 
 
+"""
+Sends the debit and credit excel reports generated to your desired email.
+"""
+
+
 def send_transaction_excel():
     msg = MIMEMultipart()
     msg['From'] = sender
