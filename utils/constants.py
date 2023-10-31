@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta
 
+"""
+Constants used across the project.
+"""
+
 TIMEFRAME_IN_DAYS = 8
 
 PREFIX_PATH = '..'

@@ -18,13 +18,16 @@ from utils.processes import *
 
 load_dotenv(dotenv_path=ENV_FILE_PATH, verbose=True)
 
-
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 console_handler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
+
+"""
+Establish connection to Gmail
+"""
 
 
 def connection(server, user, password):
@@ -41,9 +44,22 @@ def connection(server, user, password):
         return con
 
 
-def process_unseen_messages(con, kuda):
+"""
+Scrapes Gmail for unread emails from kuda.
+
+It also creates a directory 'unseen_email_for_{start_date}th-{end_date}th'. This directory will hold the email responses 
+from kuda from the specified start date to the specified end date.
+
+The return dictionary contains the total number of unread emails from kuda of all time and the total number of unread 
+emails from the specified start date to the end date.
+"""
+
+
+def process_unseen_messages(con, kuda) -> dict:
     if con is None:
-        return "Could not connect to gmail"
+        return {
+            "error": f"con return {con}"
+        }
 
     mb = con
     logger.info("Getting list of unread transactions from Kuda")
@@ -88,9 +104,22 @@ def process_unseen_messages(con, kuda):
     return conclusion
 
 
-def process_seen_messages(con, kuda):
+"""
+Scrapes Gmail for read emails from kuda.
+
+It also creates a directory 'seen_email_for_{start_date}th-{end_date}th'. This directory will hold the email responses 
+from kuda from the specified start date to the specified end date.
+
+The return dictionary contains the total number of read emails from kuda of all time and the total number of read 
+emails from the specified start date to the end date.
+"""
+
+
+def process_seen_messages(con, kuda) -> dict:
     if con is None:
-        return "Could not connect to gmail"
+        return {
+            "error": f"con returned {con}"
+        }
 
     mb = con
     logger.info("Getting list of read transactions from Kuda")
@@ -135,11 +164,24 @@ def process_seen_messages(con, kuda):
     return conclusion
 
 
-def get_seen_messages_details():
-    if os.path.exists(f"../{SEEN_FILE_DIRECTORY}") is False:
-        return False
+"""
+Reads the html files stored in the seen_email_... folder created.
 
-    logger.info("Parsing file directory")
+It converts the html files into a dictionary with three distinct values: header, information and date.
+
+The header contains the header of the mail from the html file.
+The information contains the body of the mail from the html file.
+The date is the date the email was sent
+"""
+
+
+def get_seen_messages_details() -> list:
+    if os.path.exists(f"../{SEEN_FILE_DIRECTORY}") is not True:
+        return [{
+            "error": f"Folder {SEEN_FILE_DIRECTORY} does not exist"
+        }]
+
+    logger.info(f"Parsing files from {SEEN_FILE_DIRECTORY}")
     files = os.listdir(f"../{SEEN_FILE_DIRECTORY}")
 
     transaction_details = {}
@@ -150,7 +192,7 @@ def get_seen_messages_details():
         with open(f'../{SEEN_FILE_DIRECTORY}/{file}', 'r') as f:
             html_content = f.read()
 
-        logger.info("Parsing html file with BS4")
+        logger.info("Parsing html file with BS4 \n")
         soup = BeautifulSoup(html_content, 'html.parser')
 
         date_str = process_date(file)
@@ -170,11 +212,24 @@ def get_seen_messages_details():
     return transaction_holder
 
 
-def get_unseen_messages_details():
-    if os.path.exists(f"../{UNSEEN_FILE_DIRECTORY}") is False:
-        return False
+"""
+Reads the html files stored in the unseen_email_... folder created.
 
-    logger.info("Parsing file directory")
+It converts the html files into a dictionary with three distinct values: header, information and date.
+
+The header contains the header of the mail from the html file.
+The information contains the body of the mail from the html file.
+The date is the date the email was sent
+"""
+
+
+def get_unseen_messages_details() -> list:
+    if os.path.exists(f"../{UNSEEN_FILE_DIRECTORY}") is not True:
+        return [{
+            "error": f"Folder {UNSEEN_FILE_DIRECTORY} does not exist"
+        }]
+
+    logger.info(f"Parsing file from {UNSEEN_FILE_DIRECTORY}")
     files = os.listdir(f"../{UNSEEN_FILE_DIRECTORY}")
 
     transaction_details = {}
@@ -185,7 +240,7 @@ def get_unseen_messages_details():
         with open(f'../{UNSEEN_FILE_DIRECTORY}/{file}', 'r') as f:
             html_content = f.read()
 
-        logger.info("Parsing html file with BS4")
+        logger.info("Parsing html file with BS4 \n")
         soup = BeautifulSoup(html_content, 'html.parser')
 
         date_str = process_date(file)
@@ -205,7 +260,23 @@ def get_unseen_messages_details():
     return transaction_holder
 
 
-def process_debit(transaction_holder):
+"""
+Processes the data gathered from processing the emails into debits and also categorizes it into different forms of
+debit alerts. 
+The methods of debit method implemented include: 
+ - AIRTIME RECHARGE
+ - TRANSFER
+ - SPEND AND SAVE
+ - CARD USAGE (ONLINE, ATM OR POS)
+Returns a dictionary containing a list of dictionaries containing the parsed debits and the number of debits.
+ {
+   "debit_alerts": debit_alerts --> [list of parsed debits],
+   "no_of_debits": no_of_debits --> int(number of debits)
+ }
+"""
+
+
+def process_debit(transaction_holder) -> dict:
     logger.info("Initializing debit alert holder list")
     debit_alert = []
 
@@ -284,6 +355,20 @@ def process_debit(transaction_holder):
     return final_res
 
 
+"""
+Processes the data gathered from processing the emails into credits and also categorizes it into different forms of
+credit alerts. 
+The methods of credit method implemented include: 
+ - TRANSFER
+ - MONEY REVERSAL
+Returns a dictionary containing a list of dictionaries containing the parsed credits and the number of debits.
+ {
+   "debit_alerts": debit_alerts --> [list of parsed debits],
+   "no_of_debits": no_of_debits --> int(number of debits)
+ }
+"""
+
+
 def process_credit(transaction_holder):
     logger.info("Initializing credit alert holder list")
     credit_alert = []
@@ -332,8 +417,14 @@ def process_credit(transaction_holder):
     return final_res
 
 
-def write_debit_to_excel(debit_alert):
+"""
+Gets the list of debits, converts it into a dataframe and writes it to an excel file.
+"""
+
+
+def write_debit_to_excel(debit_alert) -> str:
     debit_list = debit_alert.get('debit_alert')
+    print(debit_list)
     try:
         df = pd.DataFrame(debit_list)
         df['DATE'] = pd.to_datetime(df['DATE'])
@@ -344,7 +435,12 @@ def write_debit_to_excel(debit_alert):
         return f"{e}"
 
 
-def write_credit_to_excel(credit_alert):
+"""
+Gets the list of debits, converts it into a dataframe and writes it to an excel file.
+"""
+
+
+def write_credit_to_excel(credit_alert) -> str:
     credit_list = credit_alert.get('credit_alert')
     try:
         df = pd.DataFrame(credit_list)
@@ -354,6 +450,11 @@ def write_credit_to_excel(credit_alert):
         return "Done"
     except Exception as e:
         return f"{e}"
+
+
+"""
+Deletes any files and folders created.
+"""
 
 
 def clean_up():
@@ -397,31 +498,34 @@ if __name__ == "__main__":
     seen_mail_details = get_seen_messages_details()
     unseen_mail_details = get_unseen_messages_details()
 
-    if seen_mail_details is False:
+    print(seen_mail_details)
+    print(unseen_mail_details)
+
+    if seen_mail_details[0].get("error") is None:
         write_debit_alert = process_debit(unseen_mail_details)
         write_credit_alert = process_credit(unseen_mail_details)
 
-        write_debit_to_excel(write_debit_alert)
+        print(write_debit_to_excel(write_debit_alert))
         write_credit_to_excel(write_credit_alert)
 
         send_transaction_excel()
 
-    if unseen_mail_details is False:
+    if unseen_mail_details[0].get("error") is None:
         write_debit_alert = process_debit(seen_mail_details)
         write_credit_alert = process_credit(seen_mail_details)
 
-        write_debit_to_excel(write_debit_alert)
+        print(write_debit_to_excel(write_debit_alert))
         write_credit_to_excel(write_credit_alert)
 
         send_transaction_excel()
 
-    if unseen_mail_details and seen_mail_details is True:
+    if unseen_mail_details[0].get("error") and seen_mail_details[0].get("error") is not None:
         merged_mail_details = seen_mail_details + unseen_mail_details
 
         write_debit_alert = process_debit(merged_mail_details)
         write_credit_alert = process_credit(merged_mail_details)
 
-        write_debit_to_excel(write_debit_alert)
+        print(write_debit_to_excel(write_debit_alert))
         write_credit_to_excel(write_credit_alert)
 
         send_transaction_excel()
