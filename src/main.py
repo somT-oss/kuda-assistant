@@ -19,6 +19,14 @@ from utils.processes import *
 load_dotenv(dotenv_path=ENV_FILE_PATH, verbose=True)
 
 
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+console_handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+
 def connection(server, user, password):
     con = None
     try:
@@ -380,13 +388,6 @@ if __name__ == "__main__":
     USER = os.getenv("RECEIVER_EMAIL")
     PASSWORD = os.getenv("RECEIVER_PASSWORD")
     KUDA = os.getenv("KUDA")
-
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
-    console_handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
 
     conn = connection(SERVER, USER, PASSWORD)
 
