@@ -2,7 +2,11 @@ import logging
 from datetime import date
 from dotenv import load_dotenv
 import os
-import shutil
+from bson.binary import Binary
+
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
+from utils.constants import MONGO_CONNECTION_URI
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -10,8 +14,9 @@ from imap_tools import MailBox, AND, MailboxLoginError
 
 from src.credit import *
 from src.debit import *
-from utils.constants import START_DATE, END_DATE, SEEN_FILE_DIRECTORY, UNSEEN_FILE_DIRECTORY, CREDIT_REPORT_EXCEL, \
-    DEBIT_REPORT_EXCEL, ENV_FILE_PATH, PREFIX_PATH
+from utils.constants import START_DATE, END_DATE, READ_TRANSACTION_RECEIPTS, UNREAD_TRANSACTION_RECEIPTS, \
+    CREDIT_REPORT_EXCEL, \
+    DEBIT_REPORT_EXCEL, ENV_FILE_PATH, PREFIX_PATH, DATABASE
 from utils.mailer import send_transaction_excel
 
 from utils.processes import *
@@ -44,23 +49,47 @@ def connection(server, user, password):
         return con
 
 
-"""
-Scrapes Gmail for unread emails from kuda.
+def mongo_connection():
+    client = None
+    try:
+        con = MongoClient(MONGO_CONNECTION_URI, server_api=ServerApi('1'))
+        if con:
+            client = con
+        return client
+    except Exception as e:
+        print(e)
 
-It also creates a directory 'unseen_email_for_{start_date}th-{end_date}th'. This directory will hold the email responses 
-from kuda from the specified start date to the specified end date.
 
-The return dictionary contains the total number of unread emails from kuda of all time and the total number of unread 
-emails from the specified start date to the end date.
-"""
+def process_unseen_messages(con, mongo_connect, kuda) -> dict:
+    """
+    Scrapes Gmail for unread emails from kuda.
 
+    It also creates a directory 'unseen_email_for_{start_date}th-{end_date}th'. This directory will hold the email
+    responses
+    from kuda from the specified start date to the specified end date.
 
-def process_unseen_messages(con, kuda) -> dict:
+    The return dictionary contains the total number of unread emails from kuda of all time and the total number of
+    unread
+    emails from the specified start date to the end date.
+    """
+
     if con is None:
         return {
             "error": f"con return {con}"
         }
 
+    if mongo_connect is None:
+        return {
+            "error": f"{mongo_connect}"
+        }
+
+    db = mongo_connect.get_database(DATABASE)
+
+    # Checks to see if a collection with name: UNREAD_TRANSACTION_RECEIPTS exists.
+    if UNREAD_TRANSACTION_RECEIPTS not in db.list_collection_names():
+        db.create_collection(UNREAD_TRANSACTION_RECEIPTS)
+
+    collection = db.get_collection(UNREAD_TRANSACTION_RECEIPTS)
     mb = con
     logger.info("Getting list of unread transactions from Kuda")
     unseen_messages = mb.fetch(criteria=AND(seen=False, from_=kuda),
@@ -71,6 +100,8 @@ def process_unseen_messages(con, kuda) -> dict:
 
     for message in unseen_messages:
         email = message.html
+        encoded_email = email.encode('utf8')
+        binary_email = Binary(encoded_email)
         total_number_of_unseen_messages += 1
 
         converted_date = process_date_str(message.date_str)
@@ -87,14 +118,12 @@ def process_unseen_messages(con, kuda) -> dict:
 
             date_extensions = process_date_file_extension(message.date_str)
 
-            if os.path.exists(f"../{UNSEEN_FILE_DIRECTORY}") is False:
-                logger.info(f"Creating folder directory for month: {date_object.strftime('%B')}...")
-                os.mkdir(f"../{UNSEEN_FILE_DIRECTORY}")
-
             logger.info("Writing individual transaction history to their respective files...")
-            with open(f'../{UNSEEN_FILE_DIRECTORY}/transaction_on_{date_extensions}.html', 'w') as file:
-                file.write(email)
-                logger.info("Done!")
+            collection.insert_one({
+                "filename": f"transaction_on_{date_extensions}.html",
+                "file": binary_email,
+                "date_created": END_DATE
+            })
 
     conclusion = {
         "total number of unread emails": total_number_of_unseen_messages,
@@ -104,23 +133,33 @@ def process_unseen_messages(con, kuda) -> dict:
     return conclusion
 
 
-"""
-Scrapes Gmail for read emails from kuda.
+def process_seen_messages(con, mongo_connect, kuda) -> dict:
+    """
+    Scrapes Gmail for read emails from kuda.
 
-It also creates a directory 'seen_email_for_{start_date}th-{end_date}th'. This directory will hold the email responses 
-from kuda from the specified start date to the specified end date.
+    It also creates a directory 'seen_email_for_{start_date}th-{end_date}th'. This directory will hold the email responses
+    from kuda from the specified start date to the specified end date.
 
-The return dictionary contains the total number of read emails from kuda of all time and the total number of read 
-emails from the specified start date to the end date.
-"""
+    The return dictionary contains the total number of read emails from kuda of all time and the total number of read
+    emails from the specified start date to the end date.
+    """
 
-
-def process_seen_messages(con, kuda) -> dict:
     if con is None:
         return {
             "error": f"con returned {con}"
         }
 
+    if mongo_connect is None:
+        return {
+            "error": f"{mongo_connect}"
+        }
+
+    db = mongo_connect.get_database(DATABASE)
+
+    if READ_TRANSACTION_RECEIPTS not in db.list_collection_names():
+        db.create_collection(READ_TRANSACTION_RECEIPTS)
+
+    collection = db.get_collection(READ_TRANSACTION_RECEIPTS)
     mb = con
     logger.info("Getting list of read transactions from Kuda")
     seen_messages = mb.fetch(criteria=AND(seen=True, from_=kuda),
@@ -131,6 +170,8 @@ def process_seen_messages(con, kuda) -> dict:
 
     for message in seen_messages:
         email = message.html
+        encoded_email = email.encode('utf8')
+        binary_email = Binary(encoded_email)
         total_number_of_seen_messages += 1
 
         converted_date = process_date_str(message.date_str)
@@ -147,14 +188,11 @@ def process_seen_messages(con, kuda) -> dict:
 
             date_extensions = process_date_file_extension(message.date_str)
 
-            if os.path.exists(f"../{SEEN_FILE_DIRECTORY}") is False:
-                logger.info(f"Creating folder directory for month: {date_object.strftime('%B')}...")
-                os.mkdir(f"../{SEEN_FILE_DIRECTORY}")
-
-            logger.info("Writing individual transaction history to their respective files...")
-            with open(f'../{SEEN_FILE_DIRECTORY}/transaction_on_{date_extensions}.html', 'w') as file:
-                file.write(email)
-                logger.info("Done!\n")
+            collection.insert_one({
+                "filename": f"transaction_on_{date_extensions}.html",
+                "file": binary_email,
+                "date_created": END_DATE
+            })
 
     conclusion = {
         "total number of read messages": total_number_of_seen_messages,
@@ -176,20 +214,20 @@ The date is the date the email was sent
 
 
 def get_seen_messages_details() -> list:
-    if os.path.exists(f"../{SEEN_FILE_DIRECTORY}") is not True:
+    if os.path.exists(f"../{READ_TRANSACTION_RECEIPTS}") is not True:
         return [{
-            "error": f"Folder {SEEN_FILE_DIRECTORY} does not exist"
+            "error": f"Folder {READ_TRANSACTION_RECEIPTS} does not exist"
         }]
 
-    logger.info(f"Parsing files from {SEEN_FILE_DIRECTORY}")
-    files = os.listdir(f"../{SEEN_FILE_DIRECTORY}")
+    logger.info(f"Parsing files from {READ_TRANSACTION_RECEIPTS}")
+    files = os.listdir(f"../{READ_TRANSACTION_RECEIPTS}")
 
     transaction_details = {}
     transaction_holder = []
 
     for file in files:
         logger.info("Reading html from local storage")
-        with open(f'../{SEEN_FILE_DIRECTORY}/{file}', 'r') as f:
+        with open(f'../{READ_TRANSACTION_RECEIPTS}/{file}', 'r') as f:
             html_content = f.read()
 
         logger.info("Parsing html file with BS4 \n")
@@ -224,20 +262,20 @@ The date is the date the email was sent
 
 
 def get_unseen_messages_details() -> list:
-    if os.path.exists(f"../{UNSEEN_FILE_DIRECTORY}") is not True:
+    if os.path.exists(f"../{UNREAD_TRANSACTION_RECEIPTS}") is not True:
         return [{
-            "error": f"Folder {UNSEEN_FILE_DIRECTORY} does not exist"
+            "error": f"Folder {UNREAD_TRANSACTION_RECEIPTS} does not exist"
         }]
 
-    logger.info(f"Parsing file from {UNSEEN_FILE_DIRECTORY}")
-    files = os.listdir(f"../{UNSEEN_FILE_DIRECTORY}")
+    logger.info(f"Parsing file from {UNREAD_TRANSACTION_RECEIPTS}")
+    files = os.listdir(f"../{UNREAD_TRANSACTION_RECEIPTS}")
 
     transaction_details = {}
     transaction_holder = []
 
     for file in files:
         logger.info("Reading html from local storage")
-        with open(f'../{UNSEEN_FILE_DIRECTORY}/{file}', 'r') as f:
+        with open(f'../{UNREAD_TRANSACTION_RECEIPTS}/{file}', 'r') as f:
             html_content = f.read()
 
         logger.info("Parsing html file with BS4 \n")
@@ -456,32 +494,31 @@ def write_credit_to_excel(credit_alert) -> str:
 Deletes any files and folders created.
 """
 
-
-def clean_up():
-    logger.info("Cleaning up generated files/directories...")
-
-    if os.path.exists(f"{PREFIX_PATH}/{SEEN_FILE_DIRECTORY}"):
-        shutil.rmtree(f"{PREFIX_PATH}/{SEEN_FILE_DIRECTORY}")
-        logger.info(f"Deleted {SEEN_FILE_DIRECTORY}")
-    else:
-        logger.info(f"Directory: {SEEN_FILE_DIRECTORY} not found")
-
-    if os.path.exists(f"{PREFIX_PATH}/{UNSEEN_FILE_DIRECTORY}"):
-        shutil.rmtree(f"{PREFIX_PATH}/{UNSEEN_FILE_DIRECTORY}")
-        logger.info(f"Deleted {UNSEEN_FILE_DIRECTORY}")
-    else:
-        logger.info(f"Directory: {UNSEEN_FILE_DIRECTORY} not found")
-
-    if os.path.exists(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}"):
-        os.remove(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}")
-        logger.info(f"Deleted {CREDIT_REPORT_EXCEL}")
-    else:
-        logger.info(f"File: {CREDIT_REPORT_EXCEL} not found")
-
-    if os.path.exists(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}") is False:
-        return f"File: {DEBIT_REPORT_EXCEL} not found"
-    os.remove(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}")
-    logger.info(f"Deleted {DEBIT_REPORT_EXCEL}")
+# def clean_up():
+#     logger.info("Cleaning up generated files/directories...")
+#
+#     if os.path.exists(f"{PREFIX_PATH}/{READ_TRANSACTION_RECEIPTS}"):
+#         shutil.rmtree(f"{PREFIX_PATH}/{READ_TRANSACTION_RECEIPTS}")
+#         logger.info(f"Deleted {READ_TRANSACTION_RECEIPTS}")
+#     else:
+#         logger.info(f"Directory: {READ_TRANSACTION_RECEIPTS} not found")
+#
+#     if os.path.exists(f"{PREFIX_PATH}/{UNREAD_TRANSACTION_RECEIPTS}"):
+#         shutil.rmtree(f"{PREFIX_PATH}/{UNREAD_TRANSACTION_RECEIPTS}")
+#         logger.info(f"Deleted {UNREAD_TRANSACTION_RECEIPTS}")
+#     else:
+#         logger.info(f"Directory: {UNREAD_TRANSACTION_RECEIPTS} not found")
+#
+#     if os.path.exists(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}"):
+#         os.remove(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}")
+#         logger.info(f"Deleted {CREDIT_REPORT_EXCEL}")
+#     else:
+#         logger.info(f"File: {CREDIT_REPORT_EXCEL} not found")
+#
+#     if os.path.exists(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}") is False:
+#         return f"File: {DEBIT_REPORT_EXCEL} not found"
+#     os.remove(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}")
+#     logger.info(f"Deleted {DEBIT_REPORT_EXCEL}")
 
 
 if __name__ == "__main__":
@@ -491,44 +528,47 @@ if __name__ == "__main__":
     KUDA = os.getenv("KUDA")
 
     conn = connection(SERVER, USER, PASSWORD)
+    mongo_con = mongo_connection()
+    print(process_unseen_messages(conn, mongo_con, KUDA))
+    print(process_seen_messages(conn, mongo_con, KUDA))
 
-    unseen_email_data = process_unseen_messages(conn, KUDA)
-    seen_email_data = process_seen_messages(conn, KUDA)
-
-    seen_mail_details = get_seen_messages_details()
-    unseen_mail_details = get_unseen_messages_details()
-
-    print(seen_mail_details)
-    print(unseen_mail_details)
-
-    if seen_mail_details[0].get("error") is None:
-        write_debit_alert = process_debit(unseen_mail_details)
-        write_credit_alert = process_credit(unseen_mail_details)
-
-        print(write_debit_to_excel(write_debit_alert))
-        write_credit_to_excel(write_credit_alert)
-
-        send_transaction_excel()
-
-    if unseen_mail_details[0].get("error") is None:
-        write_debit_alert = process_debit(seen_mail_details)
-        write_credit_alert = process_credit(seen_mail_details)
-
-        print(write_debit_to_excel(write_debit_alert))
-        write_credit_to_excel(write_credit_alert)
-
-        send_transaction_excel()
-
-    if unseen_mail_details[0].get("error") and seen_mail_details[0].get("error") is not None:
-        merged_mail_details = seen_mail_details + unseen_mail_details
-
-        write_debit_alert = process_debit(merged_mail_details)
-        write_credit_alert = process_credit(merged_mail_details)
-
-        print(write_debit_to_excel(write_debit_alert))
-        write_credit_to_excel(write_credit_alert)
-
-        send_transaction_excel()
+    # unseen_email_data = process_unseen_messages(conn, KUDA)
+    # seen_email_data = process_seen_messages(conn, KUDA)
+    #
+    # seen_mail_details = get_seen_messages_details()
+    # unseen_mail_details = get_unseen_messages_details()
+    #
+    # print(seen_mail_details)
+    # print(unseen_mail_details)
+    #
+    # if seen_mail_details[0].get("error") is None:
+    #     write_debit_alert = process_debit(unseen_mail_details)
+    #     write_credit_alert = process_credit(unseen_mail_details)
+    #
+    #     print(write_debit_to_excel(write_debit_alert))
+    #     write_credit_to_excel(write_credit_alert)
+    #
+    #     send_transaction_excel()
+    #
+    # if unseen_mail_details[0].get("error") is None:
+    #     write_debit_alert = process_debit(seen_mail_details)
+    #     write_credit_alert = process_credit(seen_mail_details)
+    #
+    #     print(write_debit_to_excel(write_debit_alert))
+    #     write_credit_to_excel(write_credit_alert)
+    #
+    #     send_transaction_excel()
+    #
+    # if unseen_mail_details[0].get("error") and seen_mail_details[0].get("error") is not None:
+    #     merged_mail_details = seen_mail_details + unseen_mail_details
+    #
+    #     write_debit_alert = process_debit(merged_mail_details)
+    #     write_credit_alert = process_credit(merged_mail_details)
+    #
+    #     print(write_debit_to_excel(write_debit_alert))
+    #     write_credit_to_excel(write_credit_alert)
+    #
+    #     send_transaction_excel()
 
     """
     Uncomment the clean up method to clean up generated files and directories

@@ -35,3 +35,5 @@ soupsieve==2.5
 tzdata==2023.3
 uritemplate==4.1.1
 urllib3==2.0.7
+
+pymongo~=4.6.0
