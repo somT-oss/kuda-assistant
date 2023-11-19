@@ -1,8 +1,10 @@
 import logging
 from datetime import date
+
 from dotenv import load_dotenv
 import os
 from bson.binary import Binary
+from io import BytesIO
 
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
@@ -30,12 +32,11 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
-"""
-Establish connection to Gmail
-"""
-
 
 def connection(server, user, password):
+    """
+    Establish connection to Gmail
+    """
     con = None
     try:
         logger.info("Trying to connect to gmail")
@@ -122,7 +123,7 @@ def process_unseen_messages(con, mongo_connect, kuda) -> dict:
             collection.insert_one({
                 "filename": f"transaction_on_{date_extensions}.html",
                 "file": binary_email,
-                "date_created": END_DATE
+                "date_created": str(END_DATE)
             })
 
     conclusion = {
@@ -191,7 +192,7 @@ def process_seen_messages(con, mongo_connect, kuda) -> dict:
             collection.insert_one({
                 "filename": f"transaction_on_{date_extensions}.html",
                 "file": binary_email,
-                "date_created": END_DATE
+                "date_created": str(END_DATE)
             })
 
     conclusion = {
@@ -202,119 +203,129 @@ def process_seen_messages(con, mongo_connect, kuda) -> dict:
     return conclusion
 
 
-"""
-Reads the html files stored in the seen_email_... folder created.
+def get_seen_messages_details(mongo_connect) -> dict[str, str] | list[dict[str, str]]:
+    """
+    Reads the html files stored in the seen_email_... folder created.
 
-It converts the html files into a dictionary with three distinct values: header, information and date.
+    It converts the html files into a dictionary with three distinct values: header, information and date.
 
-The header contains the header of the mail from the html file.
-The information contains the body of the mail from the html file.
-The date is the date the email was sent
-"""
+    The header contains the header of the mail from the html file.
+    The information contains the body of the mail from the html file.
+    The date is the date the email was sent
+    """
 
-
-def get_seen_messages_details() -> list:
-    if os.path.exists(f"../{READ_TRANSACTION_RECEIPTS}") is not True:
-        return [{
-            "error": f"Folder {READ_TRANSACTION_RECEIPTS} does not exist"
-        }]
-
-    logger.info(f"Parsing files from {READ_TRANSACTION_RECEIPTS}")
-    files = os.listdir(f"../{READ_TRANSACTION_RECEIPTS}")
-
-    transaction_details = {}
     transaction_holder = []
+    transaction_details = None
 
-    for file in files:
-        logger.info("Reading html from local storage")
-        with open(f'../{READ_TRANSACTION_RECEIPTS}/{file}', 'r') as f:
-            html_content = f.read()
+    if mongo_connect is None:
+        return {
+            "error": f"{mongo_connect}"
+        }
+
+    db = mongo_connect.get_database(DATABASE)
+
+    if READ_TRANSACTION_RECEIPTS not in db.list_collection_names():
+        db.create_collection(READ_TRANSACTION_RECEIPTS)
+
+    cursor = db.get_collection(READ_TRANSACTION_RECEIPTS).find({"date_created": str(END_DATE)})
+
+    for read_receipt in cursor:
+        binary_receipt = read_receipt.get('file')
+        decoded_receipt = binary_receipt.decode('utf8')
+        html_content = BytesIO(decoded_receipt.encode('utf8')).read().decode('utf8')
 
         logger.info("Parsing html file with BS4 \n")
         soup = BeautifulSoup(html_content, 'html.parser')
 
-        date_str = process_date(file)
+        date_str = process_date(read_receipt.get('filename'))
         header = soup.h1
         information = soup.span
 
         if header is None or information is None:
-            logger.info(f"file: {f.name} has an issue with either the header, body or date value")
+            logger.info(
+                f"Document with id:{read_receipt.get('_id')} has an issue with either the header, body or date value")
             logger.info(f"header: {header} "
-                        f"information: {information} "
+                        f"information: {information}"
                         )
-            logger.info(f"This means file:{f.name} is not a transactional email\n")
+            logger.info(f"Document with id:{read_receipt.get('_id')} is not a transactional email\n")
         else:
-            transaction_details = {'header': header.text, 'information': information.text, "date": date_str}
+            transaction_details = {'id': read_receipt.get('_id'), 'header': header.text,
+                                   'information': information.text, "date": date_str}
+        #
         transaction_holder.append(transaction_details)
 
     return transaction_holder
 
 
-"""
-Reads the html files stored in the unseen_email_... folder created.
+def get_unseen_messages_details(mongo_connect) -> dict[str, str] | list[dict[str, str]]:
+    """
+    Reads the html files stored in the unseen_email_... folder created.
 
-It converts the html files into a dictionary with three distinct values: header, information and date.
+    It converts the html files into a dictionary with three distinct values: header, information and date.
 
-The header contains the header of the mail from the html file.
-The information contains the body of the mail from the html file.
-The date is the date the email was sent
-"""
+    The header contains the header of the mail from the html file.
+    The information contains the body of the mail from the html file.
+    The date is the date the email was sent
+    """
 
-
-def get_unseen_messages_details() -> list:
-    if os.path.exists(f"../{UNREAD_TRANSACTION_RECEIPTS}") is not True:
-        return [{
-            "error": f"Folder {UNREAD_TRANSACTION_RECEIPTS} does not exist"
-        }]
-
-    logger.info(f"Parsing file from {UNREAD_TRANSACTION_RECEIPTS}")
-    files = os.listdir(f"../{UNREAD_TRANSACTION_RECEIPTS}")
-
-    transaction_details = {}
     transaction_holder = []
+    transaction_details = None
 
-    for file in files:
-        logger.info("Reading html from local storage")
-        with open(f'../{UNREAD_TRANSACTION_RECEIPTS}/{file}', 'r') as f:
-            html_content = f.read()
+    if mongo_connect is None:
+        return {
+            "error": f"{mongo_connect}"
+        }
+
+    db = mongo_connect.get_database(DATABASE)
+
+    if UNREAD_TRANSACTION_RECEIPTS not in db.list_collection_names():
+        db.create_collection(UNREAD_TRANSACTION_RECEIPTS)
+
+    cursor = db.get_collection(UNREAD_TRANSACTION_RECEIPTS).find({"date_created": str(END_DATE)})
+
+    for read_receipt in cursor:
+        binary_receipt = read_receipt.get('file')
+        decoded_receipt = binary_receipt.decode('utf8')
+        html_content = BytesIO(decoded_receipt.encode('utf8')).read().decode('utf8')
 
         logger.info("Parsing html file with BS4 \n")
         soup = BeautifulSoup(html_content, 'html.parser')
 
-        date_str = process_date(file)
+        date_str = process_date(read_receipt.get('filename'))
         header = soup.h1
         information = soup.span
 
         if header is None or information is None:
-            logger.info(f"file: {f.name} has an issue with either the header, body or date value")
+            logger.info(
+                f"Document with id:{read_receipt.get('_id')} has an issue with either the header, body or date value")
             logger.info(f"header: {header} "
-                        f"information: {information} "
+                        f"information: {information}"
                         )
-            logger.info(f"This means file:{f.name} is not a transactional email\n")
+            logger.info(f"Document with id:{read_receipt.get('_id')} is not a transactional email\n")
         else:
-            transaction_details = {'header': header.text, 'information': information.text, "date": date_str}
+            transaction_details = {'id': read_receipt.get('_id'), 'header': header.text,
+                                   'information': information.text, "date": date_str}
+        #
         transaction_holder.append(transaction_details)
 
     return transaction_holder
-
-
-"""
-Processes the data gathered from processing the emails into debits and also categorizes it into different forms of
-debit alerts. 
-The methods of debit method implemented include: 
- - AIRTIME RECHARGE
- - TRANSFER
- - SPEND AND SAVE
- - CARD USAGE (ONLINE, ATM OR POS)
-Returns a dictionary containing a list of dictionaries containing the parsed debits and the number of debits.
- {
-   "debit_alerts": debit_alerts --> [list of parsed debits],
-   "no_of_debits": no_of_debits --> int(number of debits)
- }
-"""
 
 
 def process_debit(transaction_holder) -> dict:
+    """
+    Processes the data gathered from processing the emails into debits and also categorizes it into different forms of
+    debit alerts.
+    The methods of debit method implemented include:
+     - AIRTIME RECHARGE
+     - TRANSFER
+     - SPEND AND SAVE
+     - CARD USAGE (ONLINE, ATM OR POS)
+    Returns a dictionary containing a list of dictionaries containing the parsed debits and the number of debits.
+     {
+       "debit_alerts": debit_alerts --> [list of parsed debits],
+       "no_of_debits": no_of_debits --> int(number of debits)
+     }
+    """
     logger.info("Initializing debit alert holder list")
     debit_alert = []
 
@@ -335,7 +346,7 @@ def process_debit(transaction_holder) -> dict:
             airtime_info = get_debit_by_airtime_info(transaction.get('information'))
             res['NETWORK'] = airtime_info.get('network')
             res['PHONE NUMBER'] = airtime_info.get('phone_number')
-            res['AMOUNT'] = get_amount(transaction.get('information'))
+            res['AMOUNT'] = int(float(get_amount(transaction.get('information').replace(',', ''))))
 
         logger.info("Checking if debit is by transfer...")
         if is_debit_by_transfer(transaction.get('information')) is not True:
@@ -345,7 +356,7 @@ def process_debit(transaction_holder) -> dict:
             logger.info("Debit is by transfer\n")
             res['TRANSFER'] = 'True'
             transfer_info = get_debit_by_alert_info(transaction.get('information'))
-            res['AMOUNT'] = get_amount(transaction.get('information'))
+            res['AMOUNT'] = int(float(get_amount(transaction.get('information').replace(',', ''))))
             res['RECEIVER'] = transfer_info.get('receiver')
             res['DESCRIPTION'] = transfer_info.get('description')
 
@@ -357,7 +368,7 @@ def process_debit(transaction_holder) -> dict:
             logger.info("Debit is by using card at POS\n")
             res['CARD'] = 'True'
             res['ATM CARD'] = 'True'
-            res['AMOUNT'] = get_amount(transaction.get('information'))
+            res['AMOUNT'] = int(float(get_amount(transaction.get('information').replace(',', ''))))
 
         logger.info("Checking if debit is by using card online...")
         if is_debit_by_card_online(transaction.get('header')) is not True:
@@ -376,7 +387,7 @@ def process_debit(transaction_holder) -> dict:
         else:
             logger.info("Debit is by savings\n")
             res['SPEND AND SAVE'] = 'True'
-            res['AMOUNT'] = get_amount(transaction.get('information'))
+            res['AMOUNT'] = int(float(get_amount(transaction.get('information').replace(',', ''))))
 
         res['DATE'] = transaction.get("date")
         no_of_debit_alerts += 1
@@ -393,21 +404,19 @@ def process_debit(transaction_holder) -> dict:
     return final_res
 
 
-"""
-Processes the data gathered from processing the emails into credits and also categorizes it into different forms of
-credit alerts. 
-The methods of credit method implemented include: 
- - TRANSFER
- - MONEY REVERSAL
-Returns a dictionary containing a list of dictionaries containing the parsed credits and the number of debits.
- {
-   "debit_alerts": debit_alerts --> [list of parsed debits],
-   "no_of_debits": no_of_debits --> int(number of debits)
- }
-"""
-
-
 def process_credit(transaction_holder):
+    """
+    Processes the data gathered from processing the emails into credits and also categorizes it into different forms of
+    credit alerts.
+    The methods of credit method implemented include:
+     - TRANSFER
+     - MONEY REVERSAL
+    Returns a dictionary containing a list of dictionaries containing the parsed credits and the number of debits.
+     {
+       "debit_alerts": debit_alerts --> [list of parsed debits],
+       "no_of_debits": no_of_debits --> int(number of debits)
+     }
+    """
     logger.info("Initializing credit alert holder list")
     credit_alert = []
 
@@ -427,7 +436,7 @@ def process_credit(transaction_holder):
             logger.info("Credit is by alert\n")
             res['CREDIT BY ALERT'] = 'True'
             amount = get_amount(transaction.get('information'))
-            res['AMOUNT'] = amount
+            res['AMOUNT'] = int(float(amount.replace(',', '')))
             alert_info = get_credit_by_alert_info(transaction.get('information'))
             res['SENDER'] = alert_info.get('sender')
             res['DESCRIPTION'] = alert_info.get('description')
@@ -438,7 +447,7 @@ def process_credit(transaction_holder):
             res['CREDIT BY REVERSAL'] = 'False'
         else:
             logger.info("Credit is by money reversal\n")
-            res['AMOUNT'] = get_amount(transaction.get('header'))
+            res['AMOUNT'] = int(float(get_amount(transaction.get('header').replace(',', ''))))
             res['CREDIT BY REVERSAL'] = 'True'
 
         res['DATE'] = transaction.get('date')
@@ -455,12 +464,10 @@ def process_credit(transaction_holder):
     return final_res
 
 
-"""
-Gets the list of debits, converts it into a dataframe and writes it to an excel file.
-"""
-
-
 def write_debit_to_excel(debit_alert) -> str:
+    """
+    Gets the list of debits, converts it into a dataframe and writes it to an excel file.
+    """
     debit_list = debit_alert.get('debit_alert')
     print(debit_list)
     try:
@@ -473,12 +480,10 @@ def write_debit_to_excel(debit_alert) -> str:
         return f"{e}"
 
 
-"""
-Gets the list of debits, converts it into a dataframe and writes it to an excel file.
-"""
-
-
 def write_credit_to_excel(credit_alert) -> str:
+    """
+    Gets the list of debits, converts it into a dataframe and writes it to an excel file.
+    """
     credit_list = credit_alert.get('credit_alert')
     try:
         df = pd.DataFrame(credit_list)
@@ -490,37 +495,6 @@ def write_credit_to_excel(credit_alert) -> str:
         return f"{e}"
 
 
-"""
-Deletes any files and folders created.
-"""
-
-# def clean_up():
-#     logger.info("Cleaning up generated files/directories...")
-#
-#     if os.path.exists(f"{PREFIX_PATH}/{READ_TRANSACTION_RECEIPTS}"):
-#         shutil.rmtree(f"{PREFIX_PATH}/{READ_TRANSACTION_RECEIPTS}")
-#         logger.info(f"Deleted {READ_TRANSACTION_RECEIPTS}")
-#     else:
-#         logger.info(f"Directory: {READ_TRANSACTION_RECEIPTS} not found")
-#
-#     if os.path.exists(f"{PREFIX_PATH}/{UNREAD_TRANSACTION_RECEIPTS}"):
-#         shutil.rmtree(f"{PREFIX_PATH}/{UNREAD_TRANSACTION_RECEIPTS}")
-#         logger.info(f"Deleted {UNREAD_TRANSACTION_RECEIPTS}")
-#     else:
-#         logger.info(f"Directory: {UNREAD_TRANSACTION_RECEIPTS} not found")
-#
-#     if os.path.exists(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}"):
-#         os.remove(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}")
-#         logger.info(f"Deleted {CREDIT_REPORT_EXCEL}")
-#     else:
-#         logger.info(f"File: {CREDIT_REPORT_EXCEL} not found")
-#
-#     if os.path.exists(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}") is False:
-#         return f"File: {DEBIT_REPORT_EXCEL} not found"
-#     os.remove(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}")
-#     logger.info(f"Deleted {DEBIT_REPORT_EXCEL}")
-
-
 if __name__ == "__main__":
     SERVER = os.getenv("IMAP_SERVER")
     USER = os.getenv("RECEIVER_EMAIL")
@@ -529,50 +503,21 @@ if __name__ == "__main__":
 
     conn = connection(SERVER, USER, PASSWORD)
     mongo_con = mongo_connection()
-    print(process_unseen_messages(conn, mongo_con, KUDA))
-    print(process_seen_messages(conn, mongo_con, KUDA))
 
-    # unseen_email_data = process_unseen_messages(conn, KUDA)
-    # seen_email_data = process_seen_messages(conn, KUDA)
-    #
-    # seen_mail_details = get_seen_messages_details()
-    # unseen_mail_details = get_unseen_messages_details()
-    #
-    # print(seen_mail_details)
-    # print(unseen_mail_details)
-    #
-    # if seen_mail_details[0].get("error") is None:
-    #     write_debit_alert = process_debit(unseen_mail_details)
-    #     write_credit_alert = process_credit(unseen_mail_details)
-    #
-    #     print(write_debit_to_excel(write_debit_alert))
-    #     write_credit_to_excel(write_credit_alert)
-    #
-    #     send_transaction_excel()
-    #
-    # if unseen_mail_details[0].get("error") is None:
-    #     write_debit_alert = process_debit(seen_mail_details)
-    #     write_credit_alert = process_credit(seen_mail_details)
-    #
-    #     print(write_debit_to_excel(write_debit_alert))
-    #     write_credit_to_excel(write_credit_alert)
-    #
-    #     send_transaction_excel()
-    #
-    # if unseen_mail_details[0].get("error") and seen_mail_details[0].get("error") is not None:
-    #     merged_mail_details = seen_mail_details + unseen_mail_details
-    #
-    #     write_debit_alert = process_debit(merged_mail_details)
-    #     write_credit_alert = process_credit(merged_mail_details)
-    #
-    #     print(write_debit_to_excel(write_debit_alert))
-    #     write_credit_to_excel(write_credit_alert)
-    #
-    #     send_transaction_excel()
+    unseen_email_data = process_unseen_messages(conn, mongo_con, KUDA)
+    seen_email_data = process_seen_messages(conn, mongo_con, KUDA)
 
-    """
-    Uncomment the clean up method to clean up generated files and directories
-    """
-    # clean_up()
+    seen_mail_details = get_seen_messages_details(mongo_con)
+    unseen_mail_details = get_unseen_messages_details(mongo_con)
+
+    merged_mail_details = seen_mail_details + unseen_mail_details
+
+    write_debit_alert = process_debit(merged_mail_details)
+    write_credit_alert = process_credit(merged_mail_details)
+
+    print(write_debit_to_excel(write_debit_alert))
+    write_credit_to_excel(write_credit_alert)
+
+    send_transaction_excel()
 
     logger.info("Successfully sent credit and debit alert transactions")
