@@ -1,9 +1,7 @@
-"""
-Checks to see if the credit is by transfer/alert.
-"""
-
-
 def is_credit_by_alert(transaction_information):
+    """
+    Checks to see if the credit is by transfer/alert.
+    """
     key_phrase = "just sent you"
 
     if key_phrase not in transaction_information:
@@ -12,12 +10,10 @@ def is_credit_by_alert(transaction_information):
     return True
 
 
-"""
-Checks to see if credits is by reversal.
-"""
-
-
 def is_credit_by_reversal(transaction_header):
+    """
+    Checks to see if credits is by reversal.
+    """
     header_phrase = 'We Reversed Some Money Into Your Account'
 
     if header_phrase != transaction_header:
