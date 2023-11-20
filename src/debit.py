@@ -60,7 +60,7 @@ def process_receiver(transaction_information):
     """
     info_list = transaction_information.split("to")
     chunk = info_list[-1]
-    money_receiver = chunk[2:(chunk.index('-')-1)]
+    money_receiver = chunk[1:(chunk.index('-')-1)]
 
     return money_receiver
 
