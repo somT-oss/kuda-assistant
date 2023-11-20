@@ -16,9 +16,10 @@ from imap_tools import MailBox, AND, MailboxLoginError
 
 from src.credit import *
 from src.debit import *
+
 from utils.constants import START_DATE, END_DATE, READ_TRANSACTION_RECEIPTS, UNREAD_TRANSACTION_RECEIPTS, \
     CREDIT_REPORT_EXCEL, \
-    DEBIT_REPORT_EXCEL, ENV_FILE_PATH, PREFIX_PATH, DATABASE
+    DEBIT_REPORT_EXCEL, ENV_FILE_PATH, DATABASE, ABSOLUTE_PATH
 from utils.mailer import send_transaction_excel
 
 from utils.processes import *
@@ -61,19 +62,115 @@ def mongo_connection():
         print(e)
 
 
-def process_unseen_messages(con, mongo_connect, kuda) -> dict:
-    """
-    Scrapes Gmail for unread emails from kuda.
+class ReadTransactionProcessor:
 
-    It also creates a directory 'unseen_email_for_{start_date}th-{end_date}th'. This directory will hold the email
-    responses
-    from kuda from the specified start date to the specified end date.
+    @staticmethod
+    def store_read_transactions(transaction, collection):
+        email = transaction.html
+        encoded_email = email.encode('utf8')
+        binary_email = Binary(encoded_email)
 
-    The return dictionary contains the total number of unread emails from kuda of all time and the total number of
-    unread
-    emails from the specified start date to the end date.
-    """
+        converted_date = process_date_str(transaction.date_str)
+        date_object = date.fromisoformat(converted_date)
 
+        if date_object.year != START_DATE.year:
+            logger.info(f"Not processing transactions older than: {START_DATE.year}")
+
+        if date_object.month != START_DATE.month:
+            logger.info(f"Not processing transactions for: {date_object.strftime('%B')} {date_object.year}\n")
+
+        if START_DATE < date_object <= END_DATE:
+            date_extensions = process_date_file_extension(transaction.date_str)
+
+            collection.insert_one({
+                "filename": f"transaction_on_{date_extensions}.html",
+                "file": binary_email,
+                "date_created": str(END_DATE)
+            })
+
+    @staticmethod
+    def process_read_transactions(transaction):
+
+        binary_receipt = transaction.get('file')
+        decoded_receipt = binary_receipt.decode('utf8')
+        html_content = BytesIO(decoded_receipt.encode('utf8')).read().decode('utf8')
+
+        logger.info("Parsing html file with BS4 \n")
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        date_str = process_date(transaction.get('filename'))
+        header = soup.h1
+        information = soup.span
+
+        if header is None or information is None:
+            logger.info(
+                f"Document with id:{transaction.get('_id')} has an issue with either the header, body or date value")
+            logger.info(f"header: {header} "
+                        f"information: {information}"
+                        )
+            logger.info(f"Document with id:{transaction.get('_id')} is not a transactional email\n")
+        else:
+            return {'id': transaction.get('_id'),
+                    'header': header.text,
+                    'information': information.text, "date": date_str
+                    }
+
+
+class UnreadTransactionsProcessor:
+
+    @staticmethod
+    def store_unread_transactions(transaction, collection):
+
+        email = transaction.html
+        encoded_email = email.encode('utf8')
+        binary_email = Binary(encoded_email)
+
+        converted_date = process_date_str(transaction.date_str)
+        date_object = date.fromisoformat(converted_date)
+
+        if date_object.year != START_DATE.year:
+            logger.info(f"Not processing transactions older than: {START_DATE.year}")
+
+        if date_object.month != START_DATE.month:
+            logger.info(f"Not processing transactions for: {date_object.strftime('%B')} {date_object.year}\n")
+
+        if START_DATE < date_object <= END_DATE:
+            date_extensions = process_date_file_extension(transaction.date_str)
+
+            collection.insert_one({
+                "filename": f"transaction_on_{date_extensions}.html",
+                "file": binary_email,
+                "date_created": str(END_DATE)
+            })
+
+    @staticmethod
+    def process_unread_transactions(transaction):
+
+        binary_receipt = transaction.get('file')
+        decoded_receipt = binary_receipt.decode('utf8')
+        html_content = BytesIO(decoded_receipt.encode('utf8')).read().decode('utf8')
+
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        date_str = process_date(transaction.get('filename'))
+        header = soup.h1
+        information = soup.span
+
+        if header is None or information is None:
+            logger.info(
+                f"Document with id:{transaction.get('_id')} has an issue with either the header, body or date value")
+            logger.info(f"header: {header} "
+                        f"information: {information}"
+                        )
+            logger.info(f"Document with id:{transaction.get('_id')} is not a transactional email\n")
+        else:
+            return {'id': transaction.get('_id'),
+                    'header': header.text,
+                    'information': information.text, "date": date_str
+                    }
+
+
+def scraper(con, mongo_connect, kuda):
     if con is None:
         return {
             "error": f"con return {con}"
@@ -86,136 +183,32 @@ def process_unseen_messages(con, mongo_connect, kuda) -> dict:
 
     db = mongo_connect.get_database(DATABASE)
 
-    # Checks to see if a collection with name: UNREAD_TRANSACTION_RECEIPTS exists.
     if UNREAD_TRANSACTION_RECEIPTS not in db.list_collection_names():
         db.create_collection(UNREAD_TRANSACTION_RECEIPTS)
-
-    collection = db.get_collection(UNREAD_TRANSACTION_RECEIPTS)
-    mb = con
-    logger.info("Getting list of unread transactions from Kuda")
-    unseen_messages = mb.fetch(criteria=AND(seen=False, from_=kuda),
-                               mark_seen=False,
-                               bulk=True)
-    total_number_of_unseen_messages = 0
-    total_number_of_unseen_messages_in_timeframe = 0
-
-    for message in unseen_messages:
-        email = message.html
-        encoded_email = email.encode('utf8')
-        binary_email = Binary(encoded_email)
-        total_number_of_unseen_messages += 1
-
-        converted_date = process_date_str(message.date_str)
-        date_object = date.fromisoformat(converted_date)
-
-        if date_object.year != START_DATE.year:
-            logger.info(f"Not processing transactions older than: {START_DATE.year}")
-
-        if date_object.month != START_DATE.month:
-            logger.info(f"Not processing transactions for: {date_object.strftime('%B')} {date_object.year}\n")
-
-        if START_DATE < date_object <= END_DATE:
-            total_number_of_unseen_messages_in_timeframe += 1
-
-            date_extensions = process_date_file_extension(message.date_str)
-
-            logger.info("Writing individual transaction history to their respective files...")
-            collection.insert_one({
-                "filename": f"transaction_on_{date_extensions}.html",
-                "file": binary_email,
-                "date_created": str(END_DATE)
-            })
-
-    conclusion = {
-        "total number of unread emails": total_number_of_unseen_messages,
-        "total number of unread emails processed in date timeframe": total_number_of_unseen_messages_in_timeframe
-    }
-    logger.info('----------------------------------DONE WRITING UNREAD EMAILS TO DIR----------------------------------')
-    return conclusion
-
-
-def process_seen_messages(con, mongo_connect, kuda) -> dict:
-    """
-    Scrapes Gmail for read emails from kuda.
-
-    It also creates a directory 'seen_email_for_{start_date}th-{end_date}th'. This directory will hold the email responses
-    from kuda from the specified start date to the specified end date.
-
-    The return dictionary contains the total number of read emails from kuda of all time and the total number of read
-    emails from the specified start date to the end date.
-    """
-
-    if con is None:
-        return {
-            "error": f"con returned {con}"
-        }
-
-    if mongo_connect is None:
-        return {
-            "error": f"{mongo_connect}"
-        }
-
-    db = mongo_connect.get_database(DATABASE)
 
     if READ_TRANSACTION_RECEIPTS not in db.list_collection_names():
         db.create_collection(READ_TRANSACTION_RECEIPTS)
 
-    collection = db.get_collection(READ_TRANSACTION_RECEIPTS)
+    read_transaction_collection = db.get_collection(READ_TRANSACTION_RECEIPTS)
+    unread_transaction_collection = db.get_collection(UNREAD_TRANSACTION_RECEIPTS)
+
     mb = con
-    logger.info("Getting list of read transactions from Kuda")
-    seen_messages = mb.fetch(criteria=AND(seen=True, from_=kuda),
-                             mark_seen=False, bulk=True)
+    seen_transactions = mb.fetch(criteria=AND(seen=True, from_=kuda),
+                                 mark_seen=False, bulk=True)
+    unseen_transactions = mb.fetch(criteria=AND(seen=False, from_=kuda),
+                                   mark_seen=False, bulk=True)
 
-    total_number_of_seen_messages = 0
-    total_number_of_seen_messages_in_timeframe = 0
+    for transaction in seen_transactions:
+        ReadTransactionProcessor.store_read_transactions(transaction, read_transaction_collection)
 
-    for message in seen_messages:
-        email = message.html
-        encoded_email = email.encode('utf8')
-        binary_email = Binary(encoded_email)
-        total_number_of_seen_messages += 1
+    for transaction in unseen_transactions:
+        UnreadTransactionsProcessor.store_unread_transactions(transaction, unread_transaction_collection)
 
-        converted_date = process_date_str(message.date_str)
-        date_object = date.fromisoformat(converted_date)
-
-        if date_object.year != START_DATE.year:
-            logger.info(f"Not processing transactions older than: {START_DATE.year}")
-
-        if date_object.month != START_DATE.month:
-            logger.info(f"Not processing transactions for: {date_object.strftime('%B')} {date_object.year}\n")
-
-        if START_DATE < date_object <= END_DATE:
-            total_number_of_seen_messages_in_timeframe += 1
-
-            date_extensions = process_date_file_extension(message.date_str)
-
-            collection.insert_one({
-                "filename": f"transaction_on_{date_extensions}.html",
-                "file": binary_email,
-                "date_created": str(END_DATE)
-            })
-
-    conclusion = {
-        "total number of read messages": total_number_of_seen_messages,
-        "total number of read messages processed in date timeframe": total_number_of_seen_messages_in_timeframe
-    }
-    logger.info('----------------------------------DONE WRITING READ EMAILS TO DIR------------------------------------')
-    return conclusion
+    logger.info("Done storing both read and unread transactions to mongodb! \n")
 
 
-def get_seen_messages_details(mongo_connect) -> dict[str, str] | list[dict[str, str]]:
-    """
-    Reads the html files stored in the seen_email_... folder created.
-
-    It converts the html files into a dictionary with three distinct values: header, information and date.
-
-    The header contains the header of the mail from the html file.
-    The information contains the body of the mail from the html file.
-    The date is the date the email was sent
-    """
-
-    transaction_holder = []
-    transaction_details = None
+def compute_transaction(mongo_connect):
+    transaction_list = []
 
     if mongo_connect is None:
         return {
@@ -223,92 +216,20 @@ def get_seen_messages_details(mongo_connect) -> dict[str, str] | list[dict[str, 
         }
 
     db = mongo_connect.get_database(DATABASE)
+    read_transaction_collection = db.get_collection(READ_TRANSACTION_RECEIPTS).find({"date_created": str(END_DATE)})
+    unread_transaction_collection = db.get_collection(UNREAD_TRANSACTION_RECEIPTS).find({"date_created": str(END_DATE)})
 
-    if READ_TRANSACTION_RECEIPTS not in db.list_collection_names():
-        db.create_collection(READ_TRANSACTION_RECEIPTS)
+    for transaction in read_transaction_collection:
+        logger.info("Processing read transaction receipts...")
+        transaction_list.append(ReadTransactionProcessor.process_read_transactions(transaction))
+    logger.info("\n Done processing read transaction \n")
 
-    cursor = db.get_collection(READ_TRANSACTION_RECEIPTS).find({"date_created": str(END_DATE)})
+    for transaction in unread_transaction_collection:
+        logger.info("Processing unread transaction receipts...")
+        transaction_list.append(UnreadTransactionsProcessor.process_unread_transactions(transaction))
+    logger.info("\n Done processing unread transaction \n")
 
-    for read_receipt in cursor:
-        binary_receipt = read_receipt.get('file')
-        decoded_receipt = binary_receipt.decode('utf8')
-        html_content = BytesIO(decoded_receipt.encode('utf8')).read().decode('utf8')
-
-        logger.info("Parsing html file with BS4 \n")
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-        date_str = process_date(read_receipt.get('filename'))
-        header = soup.h1
-        information = soup.span
-
-        if header is None or information is None:
-            logger.info(
-                f"Document with id:{read_receipt.get('_id')} has an issue with either the header, body or date value")
-            logger.info(f"header: {header} "
-                        f"information: {information}"
-                        )
-            logger.info(f"Document with id:{read_receipt.get('_id')} is not a transactional email\n")
-        else:
-            transaction_details = {'id': read_receipt.get('_id'), 'header': header.text,
-                                   'information': information.text, "date": date_str}
-        #
-        transaction_holder.append(transaction_details)
-
-    return transaction_holder
-
-
-def get_unseen_messages_details(mongo_connect) -> dict[str, str] | list[dict[str, str]]:
-    """
-    Reads the html files stored in the unseen_email_... folder created.
-
-    It converts the html files into a dictionary with three distinct values: header, information and date.
-
-    The header contains the header of the mail from the html file.
-    The information contains the body of the mail from the html file.
-    The date is the date the email was sent
-    """
-
-    transaction_holder = []
-    transaction_details = None
-
-    if mongo_connect is None:
-        return {
-            "error": f"{mongo_connect}"
-        }
-
-    db = mongo_connect.get_database(DATABASE)
-
-    if UNREAD_TRANSACTION_RECEIPTS not in db.list_collection_names():
-        db.create_collection(UNREAD_TRANSACTION_RECEIPTS)
-
-    cursor = db.get_collection(UNREAD_TRANSACTION_RECEIPTS).find({"date_created": str(END_DATE)})
-
-    for read_receipt in cursor:
-        binary_receipt = read_receipt.get('file')
-        decoded_receipt = binary_receipt.decode('utf8')
-        html_content = BytesIO(decoded_receipt.encode('utf8')).read().decode('utf8')
-
-        logger.info("Parsing html file with BS4 \n")
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-        date_str = process_date(read_receipt.get('filename'))
-        header = soup.h1
-        information = soup.span
-
-        if header is None or information is None:
-            logger.info(
-                f"Document with id:{read_receipt.get('_id')} has an issue with either the header, body or date value")
-            logger.info(f"header: {header} "
-                        f"information: {information}"
-                        )
-            logger.info(f"Document with id:{read_receipt.get('_id')} is not a transactional email\n")
-        else:
-            transaction_details = {'id': read_receipt.get('_id'), 'header': header.text,
-                                   'information': information.text, "date": date_str}
-        #
-        transaction_holder.append(transaction_details)
-
-    return transaction_holder
+    return transaction_list
 
 
 def process_debit(transaction_holder) -> dict:
@@ -469,12 +390,11 @@ def write_debit_to_excel(debit_alert) -> str:
     Gets the list of debits, converts it into a dataframe and writes it to an excel file.
     """
     debit_list = debit_alert.get('debit_alert')
-    print(debit_list)
     try:
         df = pd.DataFrame(debit_list)
         df['DATE'] = pd.to_datetime(df['DATE'])
         df = df.sort_values(by='DATE', ascending=True)
-        df.to_excel(f"{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}", index=False)
+        df.to_excel(f"{ABSOLUTE_PATH}/{DEBIT_REPORT_EXCEL}", index=False)
         return "Done"
     except Exception as e:
         return f"{e}"
@@ -489,7 +409,7 @@ def write_credit_to_excel(credit_alert) -> str:
         df = pd.DataFrame(credit_list)
         df['DATE'] = pd.to_datetime(df['DATE'])
         df = df.sort_values(by='DATE', ascending=True)
-        df.to_excel(f"{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}", index=False)
+        df.to_excel(f"{ABSOLUTE_PATH}/{CREDIT_REPORT_EXCEL}", index=False)
         return "Done"
     except Exception as e:
         return f"{e}"
@@ -504,18 +424,13 @@ if __name__ == "__main__":
     conn = connection(SERVER, USER, PASSWORD)
     mongo_con = mongo_connection()
 
-    unseen_email_data = process_unseen_messages(conn, mongo_con, KUDA)
-    seen_email_data = process_seen_messages(conn, mongo_con, KUDA)
+    scraper(conn, mongo_con, KUDA)
+    raw_transaction_dict = compute_transaction(mongo_con)
 
-    seen_mail_details = get_seen_messages_details(mongo_con)
-    unseen_mail_details = get_unseen_messages_details(mongo_con)
+    write_debit_alert = process_debit(raw_transaction_dict)
+    write_credit_alert = process_credit(raw_transaction_dict)
 
-    merged_mail_details = seen_mail_details + unseen_mail_details
-
-    write_debit_alert = process_debit(merged_mail_details)
-    write_credit_alert = process_credit(merged_mail_details)
-
-    print(write_debit_to_excel(write_debit_alert))
+    write_debit_to_excel(write_debit_alert)
     write_credit_to_excel(write_credit_alert)
 
     send_transaction_excel()

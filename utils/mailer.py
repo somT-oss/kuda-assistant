@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 
 from utils.constants import DEBIT_REPORT_EXCEL, CREDIT_REPORT_EXCEL, EMAIL_SUBJECT, EMAIL_MESSAGE, PREFIX_PATH, \
-    ENV_FILE_PATH
+    ENV_FILE_PATH, ABSOLUTE_PATH
 
 load_dotenv(dotenv_path=ENV_FILE_PATH, verbose=True)
 
@@ -32,12 +32,12 @@ def send_transaction_excel():
 
     msg.attach(MIMEText(EMAIL_MESSAGE, 'plain'))
 
-    with open(f'{PREFIX_PATH}/{DEBIT_REPORT_EXCEL}', 'rb') as file:
+    with open(f'{ABSOLUTE_PATH}/{DEBIT_REPORT_EXCEL}', 'rb') as file:
         attachment = MIMEApplication(file.read(), _subtype="xlsx")
         attachment.add_header('content-disposition', 'attachment', filename=DEBIT_REPORT_EXCEL)
         msg.attach(attachment)
 
-    with open(f'{PREFIX_PATH}/{CREDIT_REPORT_EXCEL}', 'rb') as file:
+    with open(f'{ABSOLUTE_PATH}/{CREDIT_REPORT_EXCEL}', 'rb') as file:
         attachment2 = MIMEApplication(file.read(), _subtype="xlsx")
         attachment2.add_header('content-disposition', 'attachment', filename=CREDIT_REPORT_EXCEL)
         msg.attach(attachment2)

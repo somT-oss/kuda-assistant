@@ -14,6 +14,8 @@ TIMEFRAME_IN_DAYS = 8
 
 PREFIX_PATH = '..'
 
+ABSOLUTE_PATH = '/home/somto/Dev/accountant/'
+
 START_DATE = (datetime.today() - timedelta(TIMEFRAME_IN_DAYS)).date()
 END_DATE = datetime.today().date()
 
