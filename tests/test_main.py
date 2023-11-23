@@ -18,65 +18,44 @@ class TestMain(unittest.TestCase):
 
         self.assertIsNotNone(con)
 
-    def test_process_unseen_messages(self):
+    def test_mongo_connection(self):
+        mongo_con = mongo_connection()
 
-        con = connection(SERVER, USER, PASSWORD)
-        res = process_unseen_messages(con, KUDA)
+        self.assertIsNotNone(mongo_con)
 
-        self.assertIsInstance(res, dict)
+    def test_process_read_transactions(self):
+        db = mongo_connection().get_database(DATABASE)
+        read_transaction_receipts = db.get_collection(READ_TRANSACTION_RECEIPTS).find({"date": "2023-11-20"})
 
-    def test_process_seen_messages(self):
+        for transactions in read_transaction_receipts:
+            res = ReadTransactionProcessor.process_read_transactions(transactions)
 
-        con = connection(SERVER, USER, PASSWORD)
-        res = process_seen_messages(con, KUDA)
-
-        self.assertIsInstance(res, dict)
-
-    def test_get_seen_messages(self):
-
-        res = get_seen_messages_details()
-        self.assertIsInstance(res, list)
-
-    def test_get_unseen_messages(self):
-
-        res = get_unseen_messages_details()
-        self.assertIsInstance(res, list)
-
-    def test_process_debit(self):
-
-        seen_transaction_holder = get_seen_messages_details()
-        unseen_transaction_holder = get_unseen_messages_details()
-
-        if seen_transaction_holder[0].get("error") is None:
-            res = process_debit(unseen_transaction_holder)
             self.assertIsInstance(res, dict)
 
-        if unseen_transaction_holder[0].get("error") is None:
-            res = process_debit(seen_transaction_holder)
+    def test_process_unread_transactions(self):
+        db = mongo_connection().get_database(DATABASE)
+        unread_transaction_receipts = db.get_collection(UNREAD_TRANSACTION_RECEIPTS).find({"date": "2023-11-20"})
+
+        for transactions in unread_transaction_receipts:
+            res = UnreadTransactionsProcessor.process_unread_transactions(transactions)
+
             self.assertIsInstance(res, dict)
 
-        if seen_transaction_holder[0].get("error") and unseen_transaction_holder[0].get("error") is None:
-            merged_transaction_holder = seen_transaction_holder + unseen_transaction_holder
-            res = process_debit(merged_transaction_holder)
-            self.assertIsInstance(res, dict)
+    # UNCOMMENT TO TEST SCRAPER FUNCTION
 
-    def test_process_credit(self):
+    # def test_scraper(self):
+    #     con = connection(SERVER, USER, PASSWORD)
+    #     mongo_con = mongo_connection()
+    #
+    #     scrape = scraper(con, mongo_con, KUDA)
+    #     self.assertIsNone(scrape)
 
-        seen_transaction_holder = get_seen_messages_details()
-        unseen_transaction_holder = get_unseen_messages_details()
+    def test_compute_transaction(self):
 
-        if seen_transaction_holder[0].get("error") is None:
-            res = process_credit(unseen_transaction_holder)
-            self.assertIsInstance(res, dict)
+        mongo_con = mongo_connection()
+        compute = compute_transaction(mongo_con)
 
-        if unseen_transaction_holder[0].get("error") is None:
-            res = process_credit(seen_transaction_holder)
-            self.assertIsInstance(res, dict)
-
-        if seen_transaction_holder[0].get("error") and unseen_transaction_holder[0].get("error") is None:
-            merged_transaction_holder = seen_transaction_holder + unseen_transaction_holder
-            res = process_credit(merged_transaction_holder)
-            self.assertIsInstance(res, dict)
+        self.assertIsNotNone(compute, list)
 
     def test_write_debit_to_excel(self):
 
