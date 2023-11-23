@@ -415,7 +415,7 @@ def write_credit_to_excel(credit_alert) -> str:
         return f"{e}"
 
 
-if __name__ == "__main__":
+def main():
     SERVER = os.getenv("IMAP_SERVER")
     USER = os.getenv("RECEIVER_EMAIL")
     PASSWORD = os.getenv("RECEIVER_PASSWORD")
@@ -436,3 +436,7 @@ if __name__ == "__main__":
     send_transaction_excel()
 
     logger.info("Successfully sent credit and debit alert transactions")
+
+
+if __name__ == "__main__":
+    main()
