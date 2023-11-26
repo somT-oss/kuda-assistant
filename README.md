@@ -20,13 +20,11 @@ The bot implements various methods to distinguish between debit and credit trans
 - **Transfer:** Credit transactions related to receiving money through transfers.
 - **Transfer Reversal:** Credit transactions resulting from reversed transfers.
 
-## Environmental Variables
+## Environment Variables
 
-To use the Kuda Assistant, you need to set up the following environmental variables:
+To use the Kuda Assistant, you need to set up the following environment variables:
 
-1. Create a `.env` file in the root directory of the project.
-
-2. Add the following variables to your `.env` file:
+1. Update the following variables in the `.env` file:
 
     ```env
     RECEIVER_EMAIL=your_receiver_email@gmail.com
