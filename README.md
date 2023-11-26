@@ -48,3 +48,10 @@ To use the Kuda Assistant, you need to set up the following environmental variab
 
    ```bash
    pip install -r requirements.txt
+
+## Run Bot
+
+Start the bot by running:
+
+   ```bash
+   python src/main.py
