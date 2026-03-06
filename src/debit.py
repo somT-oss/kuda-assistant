@@ -65,7 +65,7 @@ def process_receiver(transaction_information):
     return money_receiver
 
 
-def get_debit_by_alert_info(transaction_information):
+def get_narration(transaction_information):
     """
     Gets the information of a debit (by transfer)
     """

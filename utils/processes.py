@@ -48,4 +48,4 @@ def get_amount(transaction_information):
         amount = match.group(1)
         return amount
     else:
-        return "Amount not found"
+        raise ValueError("Amount not found.")

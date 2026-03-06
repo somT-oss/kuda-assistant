@@ -1,4 +1,4 @@
-def is_credit_by_alert(transaction_information):
+def is_credit_by_transfer(transaction_information):
     """
     Checks to see if the credit is by transfer/alert.
     """
