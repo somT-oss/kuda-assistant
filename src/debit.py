@@ -1,98 +1,84 @@
-def is_debit_by_airtime_recharge(transaction_information):
+import re
+
+def is_debit_by_airtime_recharge(trxn_statement):
     """
     Checks to see if debit is by airtime recharge.
     """
-    key_phrase = 'You just recharged'
+    if "you just recharged" in trxn_statement:
+        return True
+    return False
 
-    if key_phrase not in transaction_information:
-        return False
-
-    return True
-
-
-def is_debit_by_transfer(transaction_information):
+def is_debit_by_transfer(trxn_statement):
     """
     Checks to see if debit is by transfer.
     """
-    key_phrase = 'You just sent'
-
-    if key_phrase not in transaction_information:
-        return False
-    return True
+    if "you just sent" in trxn_statement:
+        return True
+    return False
 
 
-def is_debit_by_card_online(transaction_header):
+def is_debit_by_card_online(trxn_statement):
     """
     Checks to see if debit is by use of card online
     """
-    header_phrase = 'You Used Your Kuda Card Online'
+    if "with your kuda card" in trxn_statement:
+        return True
+    return False
 
-    if transaction_header != header_phrase:
-        return False
-    return True
+def get_service_for_online_card_payment(trxn_statement) -> str | None:
+    pattern = r"you paid ₦?([\d,.]+) with your kuda card on (.*?)\."
+    match = re.search(pattern, trxn_statement, re.IGNORECASE)
+    
+    if not match:
+        return None
+    return match.group(2)
 
-
-def is_debit_by_card_pos(transaction_header):
+def is_debit_by_card_pos(trxn_statement):
     """
     Checks to see if debit is by card at POS or ATM.
     """
-    header_phrase = 'You Used Your Kuda Card On A POS'
+    if "you used your card on a pos" in trxn_statement:
+        return True
+    return False
 
-    if transaction_header != header_phrase:
-        return False
-    return True
+def is_debit_by_spend_and_save(trxn_statement):
+    if "we moved" in trxn_statement:
+        return True
+    return False
 
-
-def is_debit_by_spend_and_save(transaction_header):
-    """
-    Checks to see if debit is by saving through spend and save.
-    """
-    header_phrase = 'You Saved Some Money'
-
-    if header_phrase != transaction_header:
-        return False
-    return True
-
-
-def process_receiver(transaction_information):
-    """
-    Gets the recipient of the transferred money
-    """
-    info_list = transaction_information.split("to")
-    chunk = info_list[-1]
-    money_receiver = chunk[1:(chunk.index('-')-1)]
-
-    return money_receiver
-
-
-def get_narration(transaction_information):
+def get_savings_pocket(trxn_statement) -> str | None:
+    pattern = r"we moved ₦?([\d,.]+) from your spend account to (.*?) savings"
+    match = re.search(pattern, statement, re.IGNORECASE)
+    
+    if not match:
+        return None
+    return match.group(2)
+    
+def get_narration_and_receiver(trxn_statement):
     """
     Gets the information of a debit (by transfer)
     """
-    info = transaction_information.replace("Love, The Kuda Team.", "")
-    receiver = process_receiver(transaction_information)
-    description = info[(info.index("-") + 1):(len(info) - 2)]
-
-    res = {
-        "receiver": receiver,
-        "description": description
+    pattern = r"you just sent ₦?([\d,.]+) to (.*?)\s*-\s*(.*?)\s*\.\s*love"
+    match = re.search(pattern, trxn_statement, re.IGNORECASE)
+    if not match:
+        return None
+    return {
+        "receiver": match.group(2),
+        "description": match.group(3)
     }
-    return res
 
 
-def get_debit_by_airtime_info(transaction_information):
+def get_debit_by_airtime_info(trxn_statement):
     """
     Gets the information of debit (by airtime recharge)
     """
-    info = transaction_information
-    first_char = info.index("d") + 2
-    network = info[first_char:first_char + 3]
-    raw_phone_number = info[(info.index("-") - 14):(info.index("-") - 1)]
-    phone_number = raw_phone_number.replace("234", "0")
-
-    res = {
-        "network": network,
-        "phone_number": phone_number
+    pattern = r"you just recharged (.*?)(?:\s+data|\s+airtime)?\s+(\d+) - .*? with ₦?([\d,.]+)"
+    match = re.search(pattern, trxn_statement, re.IGNORECASE)
+    
+    if not match:
+        return None
+    return {
+        "network": match.group(1),
+        "phone_number": match.group(2)
     }
-    return res
-
+        
