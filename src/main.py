@@ -44,7 +44,7 @@ def parse_debit_transaction(transaction):
     trxn_statement = transaction['trxn_statement'].lower()
     
     res = {'date_of_transaction': datetime.strptime(transaction['date'], "%Y-%m-%d")}
-    res['amount'] = get_amount(trxn_statement)
+    res['amount'] = float(get_amount(trxn_statement).replace(',', ''))
     res['debit_metadata'] = {}
     
     if is_debit_by_airtime_recharge(trxn_statement):
@@ -77,7 +77,7 @@ def parse_credit_transaction(transaction):
     trxn_statement = transaction['trxn_statement'].lower()
     
     res = {'date_of_transaction': datetime.strptime(transaction['date'], "%Y-%m-%d")}
-    res['amount'] = get_amount(trxn_statement)
+    res['amount'] = float(get_amount(trxn_statement).replace(',', ''))
     res['credit_metadata'] = {}
     
     if is_credit_by_reversal(trxn_statement):
@@ -170,9 +170,13 @@ def create_tables():
     Base.metadata.create_all(bind=engine)
     logger.info("tables successfully created.")
 
-if __name__ == "__main__":
+def clear_db():
+    Base.metadata.drop_all(bind=engine)
+    print("database cleared")
     
+if __name__ == "__main__":
     create_tables()
+    # clear_db()
     unparsed_transactions()
 
 

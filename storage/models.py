@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.types import String
+from sqlalchemy.types import String, Float
 from sqlalchemy import func
 from datetime import datetime
 from storage.base import Base
@@ -12,7 +12,7 @@ class Transaction(Base):
     transfer: Mapped[bool | None]
     narration: Mapped[str | None] = mapped_column(String(250))
     date_of_transaction: Mapped[datetime]
-    amount: Mapped[str] = mapped_column(String(30), nullable=False)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] =  mapped_column(default=func.now())
 
 class CreditTransaction(Transaction):
