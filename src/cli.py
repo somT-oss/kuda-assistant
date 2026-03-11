@@ -1,33 +1,34 @@
+from sqlalchemy.exc import SQLAlchemyError
 import typer
 from sqlalchemy import select, literal_column, union_all
+from src.ai import generate_transaction_sql
 from storage.base import Session
 from storage.models import CreditTransaction, DebitTransaction
-from src.logger import logger
-from datetime import datetime
+from sqlalchemy import text
 from rich.console import Console
 from rich.table import Table
+from utils.processes import get_start_datetime_end_datetime
+from worker.tasks import convert_to_excel, send_email
+
+
+import logging
+
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("google_genai").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 app = typer.Typer(help="Kuda Assistant CLI - Simplified Transaction History in your Terminal")
 
 @app.command()
 def get(start_date: str, end_date: str, n: int = 10, credit: bool = False, debit: bool = False):
-    datetime_start_date: datetime
-    datetime_end_date: datetime
+
+    datetimes = get_start_datetime_end_datetime(start_date, end_date)
+    if not datetimes:
+        return None
     
-    # check date format.
-    try:
-        datetime_start_date = datetime.strptime(start_date, "%Y-%m-%d")
-        datetime_end_date = datetime.strptime(end_date, "%Y-%m-%d")
-    except ValueError:
-        logger.info(f"Could not convert {start_date} or {end_date} to datetime obj. Incorrect format for {start_date} or {end_date}")
-        return 
-    
+    datetime_start_date, datetime_end_date = datetimes[0], datetimes[1]
     console = Console()
-    
-    # check if start_date > end_date
-    if datetime_start_date > datetime_end_date:
-        logger.info(f"start_date: {start_date} cannot be greater than end_date: {end_date}")
-        return 
     
     if credit:
         with Session() as session:
@@ -172,12 +173,103 @@ def get(start_date: str, end_date: str, n: int = 10, credit: bool = False, debit
         return res
         
 @app.command()
-def recent():
-   pass
+def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool = False, debit: bool = False):
+    datetimes = get_start_datetime_end_datetime(start_date, end_date)
+    if not datetimes:
+        return None
+    
+    datetime_start_date, datetime_end_date = datetimes[0], datetimes[1]
+    trxn_list = []
+    if credit:
+        with Session() as session:
+            statement = (select(CreditTransaction)
+                .where(
+                    CreditTransaction.date_of_transaction >= datetime_start_date,
+                    CreditTransaction.date_of_transaction <= datetime_end_date
+                )
+                .order_by(CreditTransaction.date_of_transaction.asc())
+                .limit(n)
+            )
+            res = session.scalars(statement).all()
+            
+            # convert res to a list of dictionary transactions
+            for trxn in res:
+                trxn_dict = {}
+                trxn_dict['date'.upper()] = trxn.date_of_transaction.strftime("%Y-%m-%d")
+                trxn_dict['amount'.upper()] = f"₦{float(trxn.amount)}0" 
+                trxn_dict['sender'.upper()] = trxn.sender or "N/A"
+                trxn_dict['narration'.upper()] = trxn.narration or "N/A"
+                trxn_dict['is_from_savings'.upper()] = "True" if trxn.from_savings else "False"
+                trxn_dict['savings_account'.upper()] = trxn.savings_account or "N/A"
+                trxn_dict['is_reversal'.upper()] = "True" if trxn.reversal else "False"
+                
+                trxn_list.append(trxn)
+        convert_to_excel.delay(trxn_list, "credit", start_date, end_date)
+        send_email.delay(email, "credit", start_date, end_date)
+        
+    if debit:
+        with Session() as session:
+            statement = (select(DebitTransaction)
+                .where(
+                    DebitTransaction.date_of_transaction >= start_date,
+                    DebitTransaction.date_of_transaction <= end_date
+                )
+                .order_by(DebitTransaction.date_of_transaction.asc())
+                .limit(n)
+            )
+            res = session.scalars(statement).all()
+            trxn_list = []
+            for trxn in res:
+                trxn_dict = {}
+                trxn_dict['date'.upper()] = trxn.date_of_transaction.strftime("%Y-%m-%d") if trxn.date_of_transaction else "N/A"
+                trxn_dict['amount'.upper()] = f"{float(trxn.amount)}0" if trxn.amount else "0.00"
+                trxn_dict['narration'.upper] = trxn.narration or "N/A"
+                trxn_dict['receiver'.upper()] = trxn.receiver or "N/A"
+                trxn_dict['phone'.upper()] = trxn.phone_number or "N/A"
+                trxn_dict['network'.upper()] = trxn.network or "N/A"
+                trxn_dict['service'.upper()] = trxn.service_for_online_payment or "N/A"
+                trxn_dict['airtime'.upper()] = "True" if trxn.airtime else "N/A"
+                trxn_dict['online'.upper()] = "True" if trxn.online_payment else "N/A"
+                trxn_dict['pos'.upper()] = "True" if trxn.point_of_sale else "N/A"
+                trxn_dict['savings'.upper()] = "True" if trxn.savings else "N/A"
+                
+                trxn_list.append(trxn_dict)
+            convert_to_excel.delay(trxn_list, "debit", start_date, end_date)
+            send_email.delay(email, "credit", start_date, end_date)
+    
+        
    
 @app.command()
 def chat():
-    pass
+    while True:
+        question = input(">>> ")
+        query = generate_transaction_sql(question) 
+        console = Console()
+        
+        with Session() as session:
+            try:
+                result = session.execute(text(query))
+                
+                rows = result.fetchall()
+                
+                if not rows:
+                    console.print("[yellow]The query ran successfully, but returned 0 results.[/yellow]")
+                    return
+                column_names = result.keys()
+                table = Table(title="AI Insight Results", show_header=True, header_style="bold magenta")
+                for col in column_names:
+                    clean_name = str(col).replace("_", " ").title()
+                    table.add_column(clean_name, style="cyan")
+                for row in rows:
+                    row_data = [str(item) if item is not None else "-" for item in row]
+                    table.add_row(*row_data)
+                console.print(table)
+                print()
     
+            except SQLAlchemyError as e:
+                console.print("[bold red]Database Error: The AI generated invalid SQL.[/bold red]")
+                console.print(f"[red]{e}[/red]")
+
+        
 if __name__ == "__main__":
     app()
