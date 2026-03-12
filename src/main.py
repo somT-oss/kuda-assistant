@@ -1,4 +1,6 @@
 import os
+import redis
+from redis import Redis
 from imap_tools import MailBox, AND, MailboxLoginError
 from dotenv import load_dotenv, find_dotenv
 from typing import List, Dict
@@ -33,6 +35,15 @@ from utils.processes import get_amount
 
 load_dotenv(find_dotenv())
 
+
+def redis_conn() -> Redis | None:
+    try:
+        r = redis.from_url(os.getenv("REDIS_URL"))
+        return r
+    except Exception as e:
+        logger.info(f"failed to connect to redis. the error {e} occurred.")
+        return None
+        
 def login(server, email, password) -> BaseMailBox | None:
     try:
         return MailBox(server).login(email, password)
@@ -119,18 +130,36 @@ def generally_classify_transactions(transaction) -> str | None:
     
     return None
 
-def unparsed_transactions() -> List[Dict[str, str]] | None:
+def parse_and_load_transactions_to_db(n: int) -> List[Dict[str, str]] | None:
     server, email, password = os.getenv("IMAP_SERVER"), os.getenv("EMAIL"), os.getenv("PASSWORD")
     imap_client = login(server, email, password) 
     if not imap_client:
+        logger.info("could not connect to imap client, check if your environment variables are configured correctly or if your have proper internet connection.")
         return 
     
-    batch = imap_client.fetch(criteria=AND(seen=True, from_=os.getenv("KUDA")), reverse=True)
-    counter = debit_trxn_count = credit_trxn_count = invalid_trxn_count = 0
+    batch = imap_client.fetch(criteria=AND(from_=os.getenv("KUDA")), reverse=True)
+    debit_trxn_count = credit_trxn_count = invalid_trxn_count = 0
     
-    for trxn in batch:
-        if counter == 99:
+    
+    r = redis_conn()
+    if not r:
+        logger.info("failed to connect to redit before parsing transactions.")
+        return 
+        
+    if not r.get("checkpoint"):
+        r.set("checkpoint", 0) # if it does not exist, i.e first call, create checkpoint and set it's value to 0
+    
+    checkpoint = r.get("checkpoint").decode("utf-8") # get checkpoint again.
+
+    for idx, trxn in enumerate(batch):
+        if idx < int(checkpoint): # don't double process this transaction.
+            logger.info(f"skipping this transaction because transaction {idx} has already been processed and is in the db.")
+            continue
+        
+        if idx == n:  
+            logger.info(f"done processing all {n} transactions.")
             break
+            
         s = BeautifulSoup(trxn.html, 'html.parser')
         transaction = {
             "trxn_statement": s.span.get_text(),
@@ -139,26 +168,27 @@ def unparsed_transactions() -> List[Dict[str, str]] | None:
         trxn_type = generally_classify_transactions(transaction)
         
         if not trxn_type:
-            logger.info(f"Transaction number: {counter} is an invalid type of transaction")
+            logger.info(f"Transaction number: {idx} is an invalid type of transaction")
             invalid_trxn_count += 1
             
         elif trxn_type == "debit":
-            logger.info(f"Transaction number: {counter} is a debit transaction.")
+            logger.info(f"Transaction number: {idx} is a debit transaction.")
             debit = parse_debit_transaction(transaction)
             logger.info(f"{debit}")
             write_debit_trxn(debit)
             debit_trxn_count += 1 
             logger.info("\n")
         elif trxn_type == "credit":
-            logger.info(f"Transaction no: {counter} is a credit transaction.")
+            logger.info(f"Transaction no: {idx} is a credit transaction.")
             credit = parse_credit_transaction(transaction)
             write_credit_trxn(credit)
             logger.info(f"{credit}")
             credit_trxn_count += 1
             logger.info("\n")
-        counter += 1 
     
-    logger.info(f"Processed {counter} number of transactions.")
+    r.set("checkpoint", n if n > int(checkpoint) else int(checkpoint)) # update counter to be the new checkpoint 
+    
+    logger.info(f"Processed {n - int(checkpoint)} number of transactions.")
     logger.info(f"{debit_trxn_count} of them were debit transactions.")
     logger.info(f"{credit_trxn_count} of them were credit transactions.")
     logger.info(f"{invalid_trxn_count} of them were invalid transactions.")
@@ -169,25 +199,3 @@ def create_tables():
     logger.info("connecting to db and creating tables...")
     Base.metadata.create_all(bind=engine)
     logger.info("tables successfully created.")
-
-def clear_db():
-    Base.metadata.drop_all(bind=engine)
-    print("database cleared")
-    
-if __name__ == "__main__":
-    create_tables()
-    # clear_db()
-    unparsed_transactions()
-
-
-# store the information to a database using sqlalchemy.
-
-
-# get data
-# 1. check the database to see if data exists
-# 1a. if it exists, return it.
-# 1b. if it does not, reinitialize with timeframe delta of what the closest date-range in db and fetch from the scraper again.
-
-# update:
-# NO! YOU CAN'T UPDATE TRANSACTIONS THAT ALREADY EXISTS.
-
