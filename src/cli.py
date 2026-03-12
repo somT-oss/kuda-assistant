@@ -2,6 +2,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import typer
 from sqlalchemy import select, literal_column, union_all
 from src.ai import generate_transaction_sql
+from src.logger import logger
 from storage.base import Session
 from storage.models import CreditTransaction, DebitTransaction
 from sqlalchemy import text
@@ -9,6 +10,10 @@ from rich.console import Console
 from rich.table import Table
 from utils.processes import get_start_datetime_end_datetime
 from worker.tasks import convert_to_excel, send_email
+from src.main import (
+    create_tables,
+    parse_and_load_transactions_to_db,
+)
 
 
 import logging
@@ -20,6 +25,13 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 app = typer.Typer(help="Kuda Assistant CLI - Simplified Transaction History in your Terminal")
 
+@app.command()
+def init(n: int = 50):
+    logger.info(f"parsing the first {n} transactions in your email.")
+    create_tables()
+    parse_and_load_transactions_to_db(n)
+    logger.info("done parsing information your transactions into the db. you can query for your transactions now!")
+    
 @app.command()
 def get(start_date: str, end_date: str, n: int = 10, credit: bool = False, debit: bool = False):
 
@@ -206,6 +218,7 @@ def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool
                 trxn_list.append(trxn)
         convert_to_excel.delay(trxn_list, "credit", start_date, end_date)
         send_email.delay(email, "credit", start_date, end_date)
+     
         
     if debit:
         with Session() as session:
