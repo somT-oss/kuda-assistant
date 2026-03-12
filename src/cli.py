@@ -186,6 +186,11 @@ def get(start_date: str, end_date: str, n: int = 10, credit: bool = False, debit
         
 @app.command()
 def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool = False, debit: bool = False):
+    
+    if not credit and not debit:
+        logger.error("you need to specify credit or debit transaction to export.")
+        return
+    
     datetimes = get_start_datetime_end_datetime(start_date, end_date)
     if not datetimes:
         return None
@@ -215,9 +220,11 @@ def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool
                 trxn_dict['savings_account'.upper()] = trxn.savings_account or "N/A"
                 trxn_dict['is_reversal'.upper()] = "True" if trxn.reversal else "False"
                 
-                trxn_list.append(trxn)
+        
+                trxn_list.append(trxn_dict)
         convert_to_excel.delay(trxn_list, "credit", start_date, end_date)
         send_email.delay(email, "credit", start_date, end_date)
+        return "Your transaction excel sheet is currently being processed and will be sent to you shortly!"
      
         
     if debit:
@@ -234,9 +241,9 @@ def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool
             trxn_list = []
             for trxn in res:
                 trxn_dict = {}
-                trxn_dict['date'.upper()] = trxn.date_of_transaction.strftime("%Y-%m-%d") if trxn.date_of_transaction else "N/A"
+                trxn_dict['date'.upper()] = trxn.date_of_transaction.strftime("%Y-%m-%d")
                 trxn_dict['amount'.upper()] = f"{float(trxn.amount)}0" if trxn.amount else "0.00"
-                trxn_dict['narration'.upper] = trxn.narration or "N/A"
+                trxn_dict['narration'.upper()] = trxn.narration or "N/A"
                 trxn_dict['receiver'.upper()] = trxn.receiver or "N/A"
                 trxn_dict['phone'.upper()] = trxn.phone_number or "N/A"
                 trxn_dict['network'.upper()] = trxn.network or "N/A"
@@ -247,10 +254,9 @@ def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool
                 trxn_dict['savings'.upper()] = "True" if trxn.savings else "N/A"
                 
                 trxn_list.append(trxn_dict)
-            convert_to_excel.delay(trxn_list, "debit", start_date, end_date)
-            send_email.delay(email, "credit", start_date, end_date)
-    
-        
+            convert_to_excel(trxn_list, "debit", start_date, end_date)
+            send_email(email, "debit", start_date, end_date)
+            
    
 @app.command()
 def chat():
