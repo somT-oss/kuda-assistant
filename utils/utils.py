@@ -6,10 +6,12 @@ from src.logger import logger
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
+from datetime import datetime
 import smtplib
 import ssl
 import os
 import shutil
+import re
 
 
 load_dotenv(find_dotenv())
@@ -75,3 +77,26 @@ def send_email(email: str, transaction_type: str, start_date: str, end_date: str
     logger.info(f"cleaning up dangling file at {str(file_path)}")
     shutil.rmtree(dir)
     logger.info("clean up done.")
+
+def get_start_datetime_end_datetime(start_date, end_date):
+    datetime_start_date: datetime
+    datetime_end_date: datetime
+    
+    try:
+        datetime_start_date = datetime.strptime(start_date, "%Y-%m-%d")
+        datetime_end_date = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        return datetime_start_date, datetime_end_date
+    except ValueError:
+        logger.info(f"Could not convert {start_date} or {end_date} to datetime obj. Incorrect format for {start_date} or {end_date}")
+        return None
+    
+    
+def get_amount(transaction_information):
+    pattern = r'₦(\d+(?:,\d+)*(?:\.\d{2})?)'
+    match = re.search(pattern, transaction_information)
+    if match:
+        amount = match.group(1)
+        return amount
+    else:
+        raise ValueError("Amount not found.")

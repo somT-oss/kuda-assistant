@@ -31,7 +31,7 @@ from src.logger import logger
 
 from storage.apis import write_credit_trxn, write_debit_trxn
 from storage.base import engine, Base
-from utils.processes import get_amount
+from utils.utils import get_amount
 
 load_dotenv(find_dotenv())
 
