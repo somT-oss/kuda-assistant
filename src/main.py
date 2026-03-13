@@ -37,6 +37,9 @@ load_dotenv(find_dotenv())
 
 
 def redis_conn() -> Redis | None:
+    """
+    Connects to redis.
+    """
     try:
         r = redis.from_url(os.getenv("REDIS_URL"))
         return r
@@ -45,6 +48,9 @@ def redis_conn() -> Redis | None:
         return None
         
 def login(server, email, password) -> BaseMailBox | None:
+    """
+    Logs in to the IMAP server.
+    """
     try:
         return MailBox(server).login(email, password)
     except MailboxLoginError as e:
@@ -52,6 +58,9 @@ def login(server, email, password) -> BaseMailBox | None:
 
 
 def parse_debit_transaction(transaction):
+    """
+    Parses debit transactions.
+    """
     trxn_statement = transaction['trxn_statement'].lower()
     
     res = {'date_of_transaction': datetime.strptime(transaction['date'], "%Y-%m-%d")}
@@ -85,6 +94,9 @@ def parse_debit_transaction(transaction):
     return res
     
 def parse_credit_transaction(transaction):
+    """
+    Parses credit transactions.
+    """
     trxn_statement = transaction['trxn_statement'].lower()
     
     res = {'date_of_transaction': datetime.strptime(transaction['date'], "%Y-%m-%d")}
@@ -109,6 +121,9 @@ def parse_credit_transaction(transaction):
     return res
     
 def generally_classify_transactions(transaction) -> str | None:
+    """
+    Classifies each transaction as credit or debit for easier parsing.
+    """
     statement = transaction['trxn_statement'].lower()
     logger.info(f"Transaction statement: {statement}")
     
@@ -131,6 +146,9 @@ def generally_classify_transactions(transaction) -> str | None:
     return None
 
 def parse_and_load_transactions_to_db(n: int) -> List[Dict[str, str]] | None:
+    """
+    Parses and loads transactions into the database.
+    """
     server, email, password = os.getenv("IMAP_SERVER"), os.getenv("EMAIL"), os.getenv("PASSWORD")
     imap_client = login(server, email, password) 
     if not imap_client:
@@ -196,6 +214,9 @@ def parse_and_load_transactions_to_db(n: int) -> List[Dict[str, str]] | None:
 
 
 def create_tables():
+    """
+    Creates tables in the database.
+    """
     logger.info("connecting to db and creating tables...")
     Base.metadata.create_all(bind=engine)
     logger.info("tables successfully created.")
