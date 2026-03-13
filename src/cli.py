@@ -8,7 +8,7 @@ from storage.models import CreditTransaction, DebitTransaction
 from sqlalchemy import text
 from rich.console import Console
 from rich.table import Table
-from utils.processes import get_start_datetime_end_datetime
+from utils.utils import get_start_datetime_end_datetime
 from utils.utils import convert_to_excel, send_email
 from src.main import (
     create_tables,
@@ -27,6 +27,9 @@ app = typer.Typer(help="Kuda Assistant CLI - Simplified Transaction History in y
 
 @app.command()
 def init(n: int = 50):
+    """
+    Initialize the database and parse the first n transactions from your email.
+    """
     logger.info(f"parsing the first {n} transactions in your email.")
     create_tables()
     parse_and_load_transactions_to_db(n)
@@ -34,7 +37,9 @@ def init(n: int = 50):
     
 @app.command()
 def get(start_date: str, end_date: str, n: int = 10, credit: bool = False, debit: bool = False):
-
+    """
+    Get transactions from the database.
+    """
     datetimes = get_start_datetime_end_datetime(start_date, end_date)
     if not datetimes:
         return None
@@ -186,7 +191,9 @@ def get(start_date: str, end_date: str, n: int = 10, credit: bool = False, debit
         
 @app.command()
 def export(start_date: str, end_date: str, email: str, credit: bool = False, debit: bool = False):
-    
+    """
+    Export transactions to an Excel file and send it to your email.
+    """
     if not credit and not debit:
         logger.error("you need to specify credit or debit transaction to export.")
         return
@@ -258,6 +265,9 @@ def export(start_date: str, end_date: str, email: str, credit: bool = False, deb
    
 @app.command()
 def chat():
+    """
+    Chat with the AI assistant to get insights about your transactions.
+    """
     while True:
         question = input(">>> ")
         query = generate_transaction_sql(question) 
