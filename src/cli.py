@@ -9,7 +9,7 @@ from sqlalchemy import text
 from rich.console import Console
 from rich.table import Table
 from utils.processes import get_start_datetime_end_datetime
-from worker.tasks import convert_to_excel, send_email
+from utils.utils import convert_to_excel, send_email
 from src.main import (
     create_tables,
     parse_and_load_transactions_to_db,
@@ -185,7 +185,7 @@ def get(start_date: str, end_date: str, n: int = 10, credit: bool = False, debit
         return res
         
 @app.command()
-def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool = False, debit: bool = False):
+def export(start_date: str, end_date: str, email: str, credit: bool = False, debit: bool = False):
     
     if not credit and not debit:
         logger.error("you need to specify credit or debit transaction to export.")
@@ -205,7 +205,6 @@ def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool
                     CreditTransaction.date_of_transaction <= datetime_end_date
                 )
                 .order_by(CreditTransaction.date_of_transaction.asc())
-                .limit(n)
             )
             res = session.scalars(statement).all()
             
@@ -235,7 +234,6 @@ def export(start_date: str, end_date: str, email: str, n: int = 10, credit: bool
                     DebitTransaction.date_of_transaction <= end_date
                 )
                 .order_by(DebitTransaction.date_of_transaction.asc())
-                .limit(n)
             )
             res = session.scalars(statement).all()
             trxn_list = []
