@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: kuda_assistant_app
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://kuda_user:kuda_pass@db:5432/kuda_db
+      - REDIS_URL=redis://redis:6379/0
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: tail -f /dev/null
+
+  db:
+    image: postgres:15-alpine
+    container_name: kuda_assistant_db
+    environment:
+      POSTGRES_USER: kuda_user
+      POSTGRES_PASSWORD: kuda_pass
+      POSTGRES_DB: kuda_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U kuda_user -d kuda_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: kuda_assistant_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
