@@ -22,6 +22,9 @@ password = os.getenv("PASSWORD")
 
 
 def convert_to_excel(transaction_content: List, transaction_type: str, start_date: str, end_date: str):
+    """
+    Converts transactions to an excel file.
+    """
     file_name = f"{transaction_type}_{start_date}_{end_date}.xlsx"
     dir = Path.cwd() / "transaction"
 
@@ -44,6 +47,9 @@ def convert_to_excel(transaction_content: List, transaction_type: str, start_dat
 
 
 def send_email(email: str, transaction_type: str, start_date: str, end_date: str) -> None:
+    """
+    Sends an email of the generated excel sheet with the transactions, either debit or credit.
+    """
     msg = MIMEMultipart()
     msg["Subject"] = "An Automated Email from Python"
     msg["From"] = sender
@@ -79,6 +85,9 @@ def send_email(email: str, transaction_type: str, start_date: str, end_date: str
     logger.info("clean up done.")
 
 def get_start_datetime_end_datetime(start_date, end_date):
+    """
+    Converts start and end dates to datetime objects.
+    """
     datetime_start_date: datetime
     datetime_end_date: datetime
     
@@ -91,10 +100,13 @@ def get_start_datetime_end_datetime(start_date, end_date):
         logger.info(f"Could not convert {start_date} or {end_date} to datetime obj. Incorrect format for {start_date} or {end_date}")
         return None
     
-    
-def get_amount(transaction_information):
+
+def get_amount(transaction_statement) -> str:
+    """
+    Gets the amount from the transaction statement.
+    """
     pattern = r'₦(\d+(?:,\d+)*(?:\.\d{2})?)'
-    match = re.search(pattern, transaction_information)
+    match = re.search(pattern, transaction_statement)
     if match:
         amount = match.group(1)
         return amount
