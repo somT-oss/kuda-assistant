@@ -48,7 +48,7 @@ def is_debit_by_spend_and_save(trxn_statement):
 
 def get_savings_pocket(trxn_statement) -> str | None:
     pattern = r"we moved ₦?([\d,.]+) from your spend account to (.*?) savings"
-    match = re.search(pattern, statement, re.IGNORECASE)
+    match = re.search(pattern, trxn_statement, re.IGNORECASE)
     
     if not match:
         return None
