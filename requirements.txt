@@ -37,3 +37,11 @@ uritemplate==4.1.1
 urllib3==2.0.7
 
 pymongo~=4.6.0
+
+# Added missing dependencies
+sqlalchemy
+typer
+rich
+redis
+psycopg2-binary
+google-genai
