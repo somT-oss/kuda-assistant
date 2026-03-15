@@ -228,6 +228,9 @@ def export(start_date: str, end_date: str, email: str, credit: bool = False, deb
                 
         
                 trxn_list.append(trxn_dict)
+
+        convert_to_excel(trxn_list, "credit", start_date, end_date)
+        send_email(email, "credit", start_date, end_date)
         convert_to_excel.delay(trxn_list, "credit", start_date, end_date)
         send_email.delay(email, "credit", start_date, end_date)
         return "Your transaction excel sheet is currently being processed and will be sent to you shortly!"
@@ -262,7 +265,6 @@ def export(start_date: str, end_date: str, email: str, credit: bool = False, deb
             convert_to_excel(trxn_list, "debit", start_date, end_date)
             send_email(email, "debit", start_date, end_date)
             
-   
 @app.command()
 def chat():
     """
