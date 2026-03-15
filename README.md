@@ -1,55 +1,91 @@
-# Kuda Assistant
+## Kuda Assistant
+This is a CLI tool that displays your kuda bank transactions in a clean and minimal look so you don't have to dig through your emails to look for transactions you've made in the past. 
 
-## Overview
+This project was as a result of the frustration i faced when i noticed that after receiving money, i saw that i had spent it all without really knowing where my money was going. With this tool i can see exactly the transactions i've made, who i sent money too at any particular point in time and with the help of the inbuilt AI chat feature, I can get more detailed insights about my spendings.
 
-Kuda Assistant is a Python-based bot designed to streamline the process of organizing and classifying transaction receipts from your Kuda bank account. The bot scrapes your email for Kuda transaction receipts, classifies each transaction into debit and credit, generates an Excel file with the results, and then sends it to your specified email address. By default, the bot gathers transaction receipts from the last two weeks.
+## Features
+There are 4 major feature provided by kuda assistant.
+1. Initialize Database: ```ka init``` initializes the program to parse the first n transactions into the database so you can query it.
+```bash
+1. n flag. It's default is 10 and can be increased or decreased by passing the --n flag.
 
-## Debit and Credit Classification Methods
+e.g
+ka init. Parses the first 10 transactions.
+ka init --n=100. Parses the first 100 transactions.
+```
+Note: *```ka init``` has a smart checkpoint in place to prevent parsing transactions that have already been parsed during prior calls.*
 
-The bot implements various methods to distinguish between debit and credit transactions. The following methods have been implemented:
 
-### Debit Methods
+2. Retrieve Transactions: ```ka get``` with the get command, you can retrieve a list of your first n transactions. You can also filter the transactions by credit or debit transactions by passing the appropriate flags.
+```bash
+1. n flag. It's default is 10 and can be increased or decreased by passing the --n flag.
 
-- **Airtime:** Transactions related to purchasing airtime.
-- **Spend and Save:** Transactions related to spending or saving money.
-- **Card Usage:** Transactions involving the use of the card online, at Point of Sale (POS), or at an ATM.
-- **Transfer:** Transactions involving money transfers.
+2. credit flag. When applied gets the first n credit transactions
+3. debit flag. When applied gets the first n debit transactions
 
-### Credit Methods
+FORMAT: ka get start_date end_date --n=<number of transactions> email --credit | --debit
 
-- **Transfer:** Credit transactions related to receiving money through transfers.
-- **Transfer Reversal:** Credit transactions resulting from reversed transfers.
+e.g
+ka get 2026-01-01 2026-03-01. # This retrieves the first 10 debit and credit transactions.
 
-## Environment Variables
+ka get 2026-01-01 2026-03-01 --n=20. # This retrieves the first 20 debit and credit transactions.
 
-To use the Kuda Assistant, you need to set up the following environment variables:
+ka get 2026-01-01 2026-03-01 --n=20 --credit. # This retrieves the first 20 credit transactions.
 
-1. Update the following variables in the `.env` file:
+ka get 2026-01-01 2026-03-01 --n=20 --debit. # This retrieves the first 20 debit transactions.
+```
 
-    ```env
-    RECEIVER_EMAIL=your_receiver_email@gmail.com
-    RECEIVER_PASSWORD=your_receiver_password
-    SENDER_EMAIL=your_sender_email@gmail.com
-    SENDER_PASSWORD=your_sender_password
-    MONGODB_USERNAME=your_mongodb_username
-    MONGODB_PASSWORD=your_mongodb_password
-    ```
+3. Export Transactions: ```ka export``` with the export command, you can export your debit or credit transactions into excel files that will be sent directly to your email you provide like so.
+```bash
 
-## Technologies Used
+defaults:
+1. n parameter. It's default is 10 and can be increased or decreased by passing the --n flag.
 
-- **Python:** The primary programming language used for the development of the bot.
-- **MongoDB:** The database used to store data.
+FORMAT: ka export start_date end_date --n=<number of transactions> email --credit | --debit
 
-## Setup
+e.g
+ka export 2026-01-01 2026-03-01 youremail@gmail.com --credit. # This exports the first 10 credit transactions to your email as excel.
 
-1. Install the required dependencies by running:
+ka export 2026-01-01 2026-03-01 --n=20 youremail@gmail.com --credit. # This exports the first 20 credit transactions to your email as excel.
 
-   ```bash
-   pip install -r requirements.txt
+ka export 2026-01-01 2026-03-01 --n=50 youremail@gmail.com --debit. # This exports the first 50 debit transactions to your email as excel.
+```
 
-## Run Bot
+4. AI Chat: ```ka chat``` opens a REPL that takes in english queries, processes it returns the result from the database with the assistance of Google Gemini.
 
-Start the bot by running:
+### Technologies Used
+1. Python.
+2. Postgres.
+3. Redis.
+4. Docker.
+5. Makefile.
 
-   ```bash
-   python src/main.py
+### Installation
+You need to have the following prerequisites before installing the application.
+- Python3.10+
+- Docker.
+- make.
+
+1. Copy the environment variables from .env.example into your .env file.
+```bash
+cp .env.example .env
+```
+
+2. Fill in those environment variables with the appropriate values except for ```DATABASE_URL``` and ```REDIS_URL```, they will be injected from the ```docker-compose.yml``` files.
+
+3. For ```EMAIL``` and ```PASSWORD```, you will need to provide the email and password that received Kuda email transaction receipts. You can create an **[App Password](https://myaccount.google.com/apppasswords)** for your email, this will serve as the email password
+
+4. For ```SENDER_EMAIL``` and ```SENDER_PASSWORD``` use a separate email and create an app password too. If you do not have a second email, passing the values from ```EMAIL``` and ```PASSWORD``` will suffice. **This will mean you are sending an email to yourself**.
+
+5. Run ```make build``` to build the tool and finally run ```make ka``` to add an alias ```ka``` to your ```.bashrc``` file so that you don't need to pass in the whole python command to run this tool. 
+
+6. Run ```ka init``` to initialize the database with the first n transactions.
+
+## Testing
+I have written unittests to test key components of the tool. These tests are located in the *```test/```* folder. 
+To run all tests in that folder run:
+```bash
+python -m unittest discover -s tests
+```
+
+## Screenshots
