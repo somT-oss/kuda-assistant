@@ -88,6 +88,10 @@ To run all tests in that folder run:
 python -m unittest discover -s tests
 ```
 
+<<<<<<< HEAD
 ## Screenshots
 Screenshots for this project are found in this drive. Please treat as confidential. Thanks.
 https://drive.google.com/drive/folders/16we-aTALEokddC_e1RoGLfaW7OvbclNX?usp=drive_link
+=======
+## Screenshots
+>>>>>>> master
